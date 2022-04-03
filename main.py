@@ -1,6 +1,7 @@
 import re
 import paramiko
 
+
 #exucte commande on the ssh server and get the output
 def cmd_exec(ssh,cmd) : 
 
@@ -8,6 +9,7 @@ def cmd_exec(ssh,cmd) :
     out = stdout.read()
     stdin.flush()
     return out.decode('utf-8')
+
 
 
 #get the os of the ssh server
@@ -21,7 +23,8 @@ def get_host_os(ssh) :
         if "system" in line.lower() :
             return line.split(':')[-1].lower().lstrip()
 
-    return 0
+    return None
+
 
 
 #format pakage and their version in list
@@ -75,25 +78,40 @@ def format_pkg_version(packages,host_os) :
     return tab
 
 
+
 #get package of the host and save it in a file
 def get_host_packages(ssh,cmd,host_os,file,container):
-
-    target  = container if container is not None else host_os 
 
     output = cmd_exec(ssh,cmd)
 
     packages_versions = format_pkg_version(output,host_os)
 
-    file.writelines( [
-            
-            "\n\t\"%s\" : {\n " % target ,
-            "\"packages\" : %s"     %  packages_versions , 
-            "\n\t},\t",
-            
-            ])
+    if container is None :
 
-    print("list Package for %s successfull !!!\n\n" % target)
-   
+        file.writelines( [
+                
+                "\"os\" : \"%s\" , " % host_os ,
+                "\"packages\" : %s ,"     %  packages_versions ,
+                "\"containers\" : [ "
+            
+                ])
+
+        print("\n\n❑ list Package for %s successfull !!!\n" % host_os)
+    
+    else : 
+
+        file.writelines([
+
+                " { "
+                    " \"name\" : \"%s\" ," % container ,
+                    " \"packages\" : %s " % packages_versions ,
+                " } , "
+            
+        ])
+
+        print(f" + list Package for {container} container in {host_os} successfull !!!\n" )
+
+
 
 #get container name and images 
 def get_container_name_and_images(ssh,cmd) :
@@ -126,53 +144,43 @@ def network_host_audit(host) :
 
         #get the os of the server
         host_os = get_host_os(ssh)
-        
-        with open("report.json","w+") as file :
+      
 
-            #write the opening braket of the json object
-            file.writelines( ["{"] )
+        #check the os and get his the packages 
 
-            #check the os and get his the packages 
-
-            if "alpine" in host_os : 
-                get_host_packages(ssh,"apk info -vv | awk '{print $1}'",host_os,file,None)
-            elif "ubuntu" in host_os :
-                get_host_packages(ssh,"dpkg -l | awk '{print $2,$3}' OFS='^^'",host_os,file,None)
-            elif "debian" in host_os :
-                get_host_packages(ssh,"dpkg -l | awk '{print $2,$3}' OFS='^^'",host_os,file,None)
-            elif "centos" in host_os :
-                get_host_packages(ssh,"yum list installed | awk '{print $1,$2}' OFS='^^'",host_os,file,None)
-            elif "rehl" in host_os :
-                get_host_packages(ssh,"rpm -qa",host_os,file,None)
+        if "alpine" in host_os : 
+            get_host_packages(ssh,"apk info -vv | awk '{print $1}'",host_os,file,None)
+        elif "ubuntu" in host_os :
+            get_host_packages(ssh,"dpkg -l | awk '{print $2,$3}' OFS='^^'",host_os,file,None)
+        elif "debian" in host_os :
+            get_host_packages(ssh,"dpkg -l | awk '{print $2,$3}' OFS='^^'",host_os,file,None)
+        elif "centos" in host_os :
+            get_host_packages(ssh,"yum list installed | awk '{print $1,$2}' OFS='^^'",host_os,file,None)
+        elif "rehl" in host_os :
+            get_host_packages(ssh,"rpm -qa",host_os,file,None)
 
 
-            #########
-            ##
-            ## start container inspection 
-            ##
-            ########
+        #########
+        ##
+        ## start container inspection 
+        ##
+        ########
 
-            containers_info = get_container_name_and_images(ssh,"docker ps")
+        containers_info = get_container_name_and_images(ssh,"docker ps")
 
-            for container,image in containers_info.items() : 
-                
-                if "alpine" in image : 
-                    get_host_packages(ssh,"docker exec "+container+" apk info -vv","alpine",file,container)
-                elif "ubuntu" in image :
-                    get_host_packages(ssh,"docker exec "+container+" dpkg -l","ubuntu",file,container)
-                elif "debian" in image :
-                    get_host_packages(ssh,"docker exec "+container+" dpkg -l","debian",file,container)
-                elif "rehl" in image :
-                    get_host_packages(ssh,"docker exec "+container+" rpm -qa","rehl",file,container)
-                elif "centos" in image :
-                    get_host_packages(ssh,"docker exec "+container+" yum list installed","centos",file,container)
-
-
-            #write the closing braket of the json object
-            file.writelines( ["}"] )
+        for container,image in containers_info.items() : 
             
-        file.close()
-
+            if "alpine" in image : 
+                get_host_packages(ssh,"docker exec "+container+" apk info -vv","alpine",file,container)
+            elif "ubuntu" in image :
+                get_host_packages(ssh,"docker exec "+container+" dpkg -l","ubuntu",file,container)
+            elif "debian" in image :
+                get_host_packages(ssh,"docker exec "+container+" dpkg -l","debian",file,container)
+            elif "centos" in image :
+                get_host_packages(ssh,"docker exec "+container+" yum list installed","centos",file,container)
+            elif "rehl" in image :
+                get_host_packages(ssh,"docker exec "+container+" rpm -qa","rehl",file,container)
+           
 
 #format properly the content of the reported file to json syntax
 def format_json_report_file() : 
@@ -191,14 +199,39 @@ def format_json_report_file() :
 
 
 
+hosts_info =""
+
+with open("hosts.txt","r+") as hosts_file :
+    hosts = hosts_file.read()
+hosts_file.close()
 
 
-host = {
-    "ip":"127.0.0.1",
-    "username":"root",
-    "password":"root"
-}
+hosts = hosts.split("\n")
 
-network_host_audit(host)
+with open("report.json","w+") as file :
+
+    #write the opening braket of the json object
+    file.writelines( ["{"] )
+
+    for i in range(len(hosts)) :
+
+        host_info = hosts[i].split(' ')
+        
+        host = {
+            "ip":host_info[0],
+            "username":host_info[1],
+            "password":host_info[2]
+        }
+
+        file.writelines(["  \"%s\" : { " % host_info[0] ,])
+
+        network_host_audit(host)
+
+        file.writelines([ " ] } , ",])
+
+    #write the closing braket of the json object
+    file.writelines( ["}"] )
+    
+file.close()
 
 format_json_report_file()
