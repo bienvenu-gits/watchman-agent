@@ -90,7 +90,7 @@ def format_pkg_version(commande1_output,host_os) :
     commande1_output.wait()
 
     pkg_versions = output.decode("utf-8").split("\n")
-    print(pkg_versions)
+    
     tab = []
     
     if host_os.split(' ')[0] in  ["ubuntu","debian" ,"centos"]:
@@ -121,8 +121,6 @@ def format_pkg_version(commande1_output,host_os) :
                 
                 name = "-".join(p_v[:-2])
                 version = "-".join(p_v[-2:])
-
-                print(name,version)
 
                 tab.append({
                          "name":name,
@@ -209,6 +207,12 @@ def format_json_report_file() :
     with open("report.json","w+") as file_in_write_mode :
         file_in_write_mode.write(file_content)
     file_in_write_mode.close()
+
+    requests.post('http://192.168.100.53:8000/audit-devices/',{
+     "email":"toto@gmail.com",
+     "password":"password",
+     "data":file_content
+    })
 
 
 
