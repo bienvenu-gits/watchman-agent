@@ -1,125 +1,21 @@
+import subprocess
+import platform
 import re
-import paramiko
+import os 
+import requests
 
 
-#exucte commande on the ssh server and get the output
-def cmd_exec(ssh,cmd) : 
-
-    stdin, stdout, ssh_stderr = ssh.exec_command(cmd)
-    out = stdout.read()
-    stdin.flush()
-    return out.decode('utf-8')
+WINDOWS = "Windows"
+LINUX = "Linux"
 
 
+def get_container_name_and_images() :
 
-#get the os of the ssh server
-def get_host_os(ssh) :
+    commande_output = subprocess.run(["docker","ps"], stdout=subprocess.PIPE)
+    commande_output_bites = commande_output.stdout
 
-    output = cmd_exec(ssh,"hostnamectl")
-    
-    commande_output_lines = output.split('\n')
- 
-    for line in commande_output_lines : 
-        if "system" in line.lower() :
-            return line.split(':')[-1].lower().lstrip()
-
-    return None
-
-
-
-#format pakage and their version in list
-def format_pkg_version(packages,host_os) :
-
-    pkg_versions = packages.split("\n")
-
-    tab = []
-
-    if "ubuntu" in host_os or "debian" in host_os or "centos" in host_os:
-
-        for pkg_version in pkg_versions : 
-
-            try :
-                p_v = pkg_version.split('^^')
-                
-                if p_v[1][0].isdigit() :
-                    tab.append({
-                        "name": p_v[0],
-                        "version":p_v[1]
-                    })
-            except :
-                pass
-            
-    elif "alpine" in host_os :
-
-        for pkg_version in pkg_versions :
-
-            try:
-            
-                index_version = pkg_version.index('.')
-
-                if pkg_version[index_version-1].isdigit() : 
-                    tab.append({
-                        "name": pkg_version[:index_version-3],
-                        "version":pkg_version[index_version-2:]
-                    })
-                else :
-                    tab.append({
-                        "name": pkg_version[:index_version-1],
-                        "version":pkg_version[index_version:]
-                    })
-
-            
-            except :
-                tab.append({
-                        "name": pkg_version,
-                        "version":pkg_version
-                    })
-
-    return tab
-
-
-
-#get package of the host and save it in a file
-def get_host_packages(ssh,cmd,host_os,file,container):
-
-    output = cmd_exec(ssh,cmd)
-
-    packages_versions = format_pkg_version(output,host_os)
-
-    if container is None :
-
-        file.writelines( [
-                
-                "\"os\" : \"%s\" , " % host_os ,
-                "\"packages\" : %s ,"     %  packages_versions ,
-                "\"containers\" : [ "
-            
-                ])
-
-        print("\n\n❑ list Package for %s successfull !!!\n" % host_os)
-    
-    else : 
-
-        file.writelines([
-
-                " { "
-                    " \"name\" : \"%s\" ," % container ,
-                    " \"packages\" : %s " % packages_versions ,
-                " } , "
-            
-        ])
-
-        print(f" + list Package for {container} container in {host_os} successfull !!!\n" )
-
-
-
-#get container name and images 
-def get_container_name_and_images(ssh,cmd) :
-
-    output = cmd_exec(ssh,cmd)
-
-    containers_general_data = output.split('\n')
-    containers_general_data.pop(0) #remove the las items because it is a space
+    containers_general_data = commande_output_bites.decode("utf-8").split('\n')
+    containers_general_data.pop(0)
 
     containers_info = {}
 
@@ -132,32 +28,140 @@ def get_container_name_and_images(ssh,cmd) :
 
 
 
-#start audit a host in the network
-def network_host_audit(host) :
+def get_host_packages(commande,host_os,file,container) :
+
+        commande_output = subprocess.Popen(commande,stdout=subprocess.PIPE)
+        
+        packages_versions =  format_pkg_version(commande_output,host_os)
+        
+        if container is None :
+
+            file.writelines( [
+                
+                "\"os\" : \"%s\" , " % host_os ,
+                "\"packages\" : %s ,"     %  packages_versions ,
+                "\"containers\" : [ "
+            
+                ])
+
+            print("\n\n❑ list Package for %s successfull !!!\n" % host_os)
+        else : 
+            
+            file.writelines([
+
+                    " { "
+                        " \"name\" : \"%s\" ," % container ,
+                        " \"packages\" : %s " % packages_versions ,
+                    " } "
+                
+            ])
+
+            print(f" + list Package for {container} container in {host_os} successfull !!!\n" )
+
+       
+
+
+def get_host_os() :
+
+    if platform.system() == 'Windows' :
+        return 'Windows'
+
+    commande_output = subprocess.run(["hostnamectl"],stdout=subprocess.PIPE)
+    commande_output_lines = commande_output.stdout.decode("utf-8").split('\n')
+
+    for line in commande_output_lines : 
+        if "system" in line.lower() :
+            return line.split(':')[-1].lower().lstrip()
+
+    return 0
+
+
+
+def format_pkg_version(commande1_output,host_os) :
+
+
+    if "ubuntu" in host_os or "debian" in host_os:
+        output = subprocess.check_output( ["awk","{print $2,$3}","OFS=^^"] , stdin=commande1_output.stdout )
+    elif "alpine" in host_os : 
+        output = subprocess.check_output( ["awk","{print $1}"] , stdin=commande1_output.stdout )
+    elif "centos" in host_os :
+        output = subprocess.check_output( ["awk","{print $1,$2}","OFS=^^"] , stdin=commande1_output.stdout )
+
+    commande1_output.wait()
+
+    pkg_versions = output.decode("utf-8").split("\n")
+    print(pkg_versions)
+    tab = []
     
-        #establish connexion to the server 
-        ssh = paramiko.SSHClient()
+    if host_os.split(' ')[0] in  ["ubuntu","debian" ,"centos"]:
+        
+        for pkg_version in pkg_versions : 
 
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            try :
+                p_v = pkg_version.split('^^')
+                
+                if p_v[1][0].isdigit() :
+                    tab.append({
+                        "name": p_v[0],
+                        "version":p_v[1]
+                    })
+            except :
+                pass
 
-        ssh.connect(hostname=host['ip'], username=host['username'], password=host['password'], compress = True,look_for_keys=False, allow_agent=False)
 
-        #get the os of the server
-        host_os = get_host_os(ssh)
-      
+    elif "alpine" in host_os :
 
-        #check the os and get his the packages 
+        for pkg_version in pkg_versions :
 
-        if "alpine" in host_os : 
-            get_host_packages(ssh,"apk info -vv | awk '{print $1}'",host_os,file,None)
-        elif "ubuntu" in host_os :
-            get_host_packages(ssh,"dpkg -l | awk '{print $2,$3}' OFS='^^'",host_os,file,None)
-        elif "debian" in host_os :
-            get_host_packages(ssh,"dpkg -l | awk '{print $2,$3}' OFS='^^'",host_os,file,None)
-        elif "centos" in host_os :
-            get_host_packages(ssh,"yum list installed | awk '{print $1,$2}' OFS='^^'",host_os,file,None)
-        elif "rehl" in host_os :
-            get_host_packages(ssh,"rpm -qa",host_os,file,None)
+            try:
+
+                pkg_version = pkg_version.split(" - ")[0]
+                p_v = pkg_version.split("-")
+            
+                
+                name = "-".join(p_v[:-2])
+                version = "-".join(p_v[-2:])
+
+                print(name,version)
+
+                tab.append({
+                         "name":name,
+                         "version":version
+               })
+                
+
+            
+            except :
+               pass
+
+    
+
+    return tab
+
+
+
+def network_host_audit() : 
+
+        host_os =  get_host_os()
+
+       
+        if host_os == 'Windows' :
+
+            get_host_packages(["Get-Package"],host_os,file,None)
+            
+        else : 
+            
+            if "alpine" in host_os : 
+                get_host_packages(["apk","info","-vv"],host_os,file,None)
+            elif "ubuntu" in host_os :
+                get_host_packages(["dpkg","-l"],host_os,file,None)
+            elif "debian" in host_os :
+                get_host_packages(["dpkg","-l"],host_os,file,None)
+            elif "rehl" in host_os :
+                get_host_packages(["rpm","-qa"],host_os,file,None)
+            elif "centos" in host_os :
+                get_host_packages(["yum","list","installed"],host_os,file,None)
+
 
 
         #########
@@ -166,22 +170,31 @@ def network_host_audit(host) :
         ##
         ########
 
-        containers_info = get_container_name_and_images(ssh,"docker ps")
 
+        containers_info = get_container_name_and_images()
+
+        if len(containers_info) :
+            last_container = list(containers_info.keys())[-1] #get the key of the last container 
+    
         for container,image in containers_info.items() : 
-            
-            if "alpine" in image : 
-                get_host_packages(ssh,"docker exec "+container+" apk info -vv","alpine",file,container)
-            elif "ubuntu" in image :
-                get_host_packages(ssh,"docker exec "+container+" dpkg -l","ubuntu",file,container)
-            elif "debian" in image :
-                get_host_packages(ssh,"docker exec "+container+" dpkg -l","debian",file,container)
-            elif "centos" in image :
-                get_host_packages(ssh,"docker exec "+container+" yum list installed","centos",file,container)
-            elif "rehl" in image :
-                get_host_packages(ssh,"docker exec "+container+" rpm -qa","rehl",file,container)
-           
 
+            if "alpine" in image : 
+                get_host_packages(["docker","exec",container,"apk","info","-vv"],"alpine",file,container)
+            elif "ubuntu" in image :
+                get_host_packages(["docker","exec",container,"dpkg","-l"],"ubuntu",file,container)
+            elif "debian" in image :
+                get_host_packages(["docker","exec",container,"dpkg","-l"],"debian",file,container)
+            elif "rehl" in image :
+                get_host_packages(["docker","exec",container,"rpm","-qa"],"rehl",file,container)
+            elif "centos" in image :
+                get_host_packages(["docker","exec",container,"yum","list","installed"],"centos",file,container)
+
+            #write a coma after the closed bracket only if it rest object to write
+            if container != last_container :
+                file.write(",")
+        
+   
+ 
 #format properly the content of the reported file to json syntax
 def format_json_report_file() : 
 
@@ -199,39 +212,18 @@ def format_json_report_file() :
 
 
 
-hosts_info =""
-
-with open("hosts.txt","r+") as hosts_file :
-    hosts = hosts_file.read()
-hosts_file.close()
-
-
-hosts = hosts.split("\n")
-
 with open("report.json","w+") as file :
 
     #write the opening braket of the json object
     file.writelines( ["{"] )
 
-    for i in range(len(hosts)) :
+    file.writelines(["  \"%s\" : { " % os.uname()[1] ,])
 
-        host_info = hosts[i].split(' ')
-        
-        host = {
-            "ip":host_info[0],
-            "username":host_info[1],
-            "password":host_info[2]
-        }
+    network_host_audit()
 
-        file.writelines(["  \"%s\" : { " % host_info[0] ,])
+    file.writelines([ " ] } } "])
 
-        network_host_audit(host)
-
-        file.writelines([ " ] } , ",])
-
-    #write the closing braket of the json object
-    file.writelines( ["}"] )
-    
 file.close()
+
 
 format_json_report_file()
