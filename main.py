@@ -1,39 +1,69 @@
 import subprocess
 import platform
 import re
-import os 
 import requests
 
-
-WINDOWS = "Windows"
-LINUX = "Linux"
 
 
 def get_container_name_and_images() :
 
-    commande_output = subprocess.run(["docker","ps"], stdout=subprocess.PIPE)
-    commande_output_bites = commande_output.stdout
-
-    containers_general_data = commande_output_bites.decode("utf-8").split('\n')
-    containers_general_data.pop(0)
-
     containers_info = {}
 
-    for el in containers_general_data :
-        if el != '' :
-            tab = el.split(' ')
-            containers_info[tab[-1]] = tab[3]
-    
+    try :
+        commande_output = subprocess.run(["docker","ps"], stdout=subprocess.PIPE)
+        commande_output = commande_output.stdout.decode("utf-8")
+
+        containers_general_data = commande_output.split('\n')
+        containers_general_data.pop(0)
+
+        
+
+        for el in containers_general_data :
+            if el != '' :
+                tab = el.split(' ')
+                containers_info[tab[-1]] = tab[3]
+    except : 
+        pass
+
     return containers_info
 
 
 
 def get_host_packages(commande,host_os,file,container) :
 
-        commande_output = subprocess.Popen(commande,stdout=subprocess.PIPE)
+        if host_os == 'Windows' :
+          
+            commande_output = subprocess.check_output(commande, text=True)
+            
+            output_list = commande_output.split('\n')
+            
+            packages_versions = []
+
+            for el in output_list :
+                el = el.split()
+
+                el = [ i for i in el if i != '' ] #purge space 
+                el = [ i for i in el if not 'C:\\' in i ] #purge source 
+
+                try :
+                   
+                    if(el[-1][0].isdigit()) :
+                        p_v = {
+                            "name": " ".join(el[:-1]) ,
+                            "version": el[-1]
+                        }
+
+                        packages_versions.append(p_v)
+                except : 
+                    pass
+               
+        else :
+
+            commande_output = subprocess.Popen(commande,stdout=subprocess.PIPE)
+            
+            packages_versions =  format_pkg_version(commande_output,host_os)
         
-        packages_versions =  format_pkg_version(commande_output,host_os)
-        
+
         if container is None :
 
             file.writelines( [
@@ -73,7 +103,6 @@ def get_host_os() :
         if "system" in line.lower() :
             return line.split(':')[-1].lower().lstrip()
 
-    return 0
 
 
 
@@ -145,7 +174,7 @@ def network_host_audit() :
        
         if host_os == 'Windows' :
 
-            get_host_packages(["Get-Package"],host_os,file,None)
+            get_host_packages(["powershell", "-Command", "Get-Package"],host_os,file,None)
             
         else : 
             
