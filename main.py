@@ -226,7 +226,7 @@ def network_host_audit(file):
 
 
 # format properly the content of the reported file to json syntax
-def format_json_report_file(email, password):
+def format_json_report_file(client_id, client_secret):
 
     file_content = ""
 
@@ -237,39 +237,41 @@ def format_json_report_file(email, password):
     file_content = re.sub('\'', '"', file_content)
 
     with open("report.json", "w+") as file_in_write_mode:
-        file_in_write_mode.write(file_content)
+        file_in_write_mode.write("")
     file_in_write_mode.close()
 
     try:
 
         ans = requests.post('http://127.0.0.1:8000/agent/audit/', {
-            "email": email,
-            "password": password,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "data": file_content
         })
 
         if ans.status_code != 200:
+            print("\n❌️ Erreur d'execution ❌️")
+            print("   Cause : Arguments requis pour l'exécution du script.\n", ans.json()['message'])
 
-            print("An error occure : ", ans.json()['error'])
 
     except:
 
-        print("\nXXX Unable to join the server !!! XXX")
-        print("Try these solutions : ")
-        print("\t-Try later")
-        print("\t-Verify your network connection")
-        print("If the probleme persiste contact us by phone number (+229 91911591) or e-mail ( contact@gits.bj ) ")
+        print("\n❌️ Impossible de joindre le server ❌️\n")
+        print("   Essayer l'une des solution suivante : \n")
+        print("   👉️Try later")
+        print("   👉️Verify your network connection")
+        print("\nSi le probleme persiiste contactez le +229 91911591 ou  contact@gits.bj\n")
 
 
 def main():
 
     try:
-        email = sys.argv[1]
+        client_id = sys.argv[1]
+        client_secret = sys.argv[2]
     except:
-        print("\nYou should set your email has parameter !!!")
+        print("\n❌️ Erreur d'execution ❌️")
+        print("   Cause : Arguments requis pour l'exécution du script.\n")
         sys.exit(1)
 
-    password = getpass.getpass(prompt="Enter passwd for %s : " % email)
 
     with open("report.json", "w+") as file:
 
@@ -284,7 +286,6 @@ def main():
 
     file.close()
 
-    format_json_report_file(email, password)
-
+    format_json_report_file(client_id, client_secret)
 
 sys.exit(main())
