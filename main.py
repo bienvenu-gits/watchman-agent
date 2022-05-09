@@ -3,8 +3,15 @@ import platform
 import re
 import requests
 import sys
-import getpass
 
+
+def request_error() :
+    print("\n❌️ Impossible de joindre le server ❌️\n")
+    print("   Essayer l'une des solution suivante : \n")
+    print("   👉️Try later")
+    print("   👉️Verify your network connection")
+    print("\nSi le probleme persiiste contactez le +229 91911591 ou  contact@gits.bj\n")
+    sys.exit(1)
 
 def get_container_name_and_images():
 
@@ -21,7 +28,9 @@ def get_container_name_and_images():
         for el in containers_general_data:
             if el != '':
                 tab = el.split(' ')
-                containers_info[tab[-1]] = tab[3]
+                if "alpine" in tab[3] or "ubuntu" in tab[3] or "debian" in tab[3] or "rehl" in tab[3] or "centos" in tab[3]:
+                    
+                    containers_info[tab[-1]] = tab[3]
     except:
         pass
 
@@ -82,6 +91,7 @@ def get_host_packages(commande, host_os, file, container):
 
         ])
 
+        
         print("\n\n❑ list Package for %s successfull !!!\n" % host_os)
     else:
 
@@ -189,7 +199,9 @@ def network_host_audit(file):
         elif "centos" in host_os:
             get_host_packages(["yum", "list", "installed"],
                               host_os, file, None)
-
+        else: 
+            print("😓️ Sorry, this type system is not supported yet;\n")
+            sys.exit(1)
     #########
     ##
     # start container inspection
@@ -207,59 +219,77 @@ def network_host_audit(file):
         if "alpine" in image:
             get_host_packages(["docker", "exec", container,
                               "apk", "info", "-vv"], "alpine", file, container)
+            # write a coma after the closed bracket only if it rest object to write
+            if container != last_container:
+               
+                file.write(",")
+
         elif "ubuntu" in image:
             get_host_packages(["docker", "exec", container,
                               "dpkg", "-l"], "ubuntu", file, container)
+            # write a coma after the closed bracket only if it rest object to write
+            if container != last_container:
+                file.write(",")
+
         elif "debian" in image:
             get_host_packages(["docker", "exec", container,
                               "dpkg", "-l"], "debian", file, container)
+            # write a coma after the closed bracket only if it rest object to write
+            if container != last_container:
+                file.write(",")
+
         elif "rehl" in image:
             get_host_packages(["docker", "exec", container,
                               "rpm", "-qa"], "rehl", file, container)
+            # write a coma after the closed bracket only if it rest object to write
+            if container != last_container:
+                file.write(",")
+
         elif "centos" in image:
             get_host_packages(["docker", "exec", container, "yum",
                               "list", "installed"], "centos", file, container)
-
-        # write a coma after the closed bracket only if it rest object to write
-        if container != last_container:
-            file.write(",")
+            # write a coma after the closed bracket only if it rest object to write
+            if container != last_container:
+                file.write(",")
+        
 
 
 # format properly the content of the reported file to json syntax
-def format_json_report_file(client_id, client_secret):
+def format_json_report(client_id, client_secret):
 
     file_content = ""
 
-    with open("report.json", "r+") as file_in_read_mode:
+    with open("__", "r+") as file_in_read_mode:
         file_content = file_in_read_mode.read()
     file_in_read_mode.close()
 
     file_content = re.sub('\'', '"', file_content)
 
-    with open("report.json", "w+") as file_in_write_mode:
+    with open("__", "w+") as file_in_write_mode:
         file_in_write_mode.write("")
     file_in_write_mode.close()
 
     try:
-
-        ans = requests.post('http://127.0.0.1:8000/agent/audit/', {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "data": file_content
-        })
+        
+        ans = requests.post(
+            url='http://192.168.100.74:8000/api/v1/agent/webhook/' , 
+            headers={
+                        "AGENT-ID":client_id,
+                        "AGENT-SECRET":client_secret 
+                    },
+            data= {
+                    "data": file_content
+                }
+            )
 
         if ans.status_code != 200:
             print("\n❌️ Erreur d'execution ❌️")
-            print("   Cause : Arguments requis pour l'exécution du script.\n", ans.json()['message'])
+            print("   Detail : ", ans.json()["detail"])
 
 
     except:
 
-        print("\n❌️ Impossible de joindre le server ❌️\n")
-        print("   Essayer l'une des solution suivante : \n")
-        print("   👉️Try later")
-        print("   👉️Verify your network connection")
-        print("\nSi le probleme persiiste contactez le +229 91911591 ou  contact@gits.bj\n")
+        request_error()
 
 
 def main():
@@ -269,11 +299,32 @@ def main():
         client_secret = sys.argv[2]
     except:
         print("\n❌️ Erreur d'execution ❌️")
-        print("   Cause : Arguments requis pour l'exécution du script.\n")
+        print("   Detail : Arguments requis pour l'exécution du script.\n")
         sys.exit(1)
 
+    token = None 
+    
+    try:
+        
+        ans = requests.get('http://192.168.100.74:8000/api/v1/agent/connect', headers={
+           "AGENT-ID":client_id,
+           "AGENT-SECRET":client_secret
+        })
 
-    with open("report.json", "w+") as file:
+        if ans.status_code != 200:
+            print("\n❌️ Erreur d'execution ❌️")
+            print("   Detail : ", ans.json()["detail"])
+           
+        else :
+            token = ans.json()["token"]
+
+    except:
+        request_error()
+    
+    if token is None :
+        sys.exit(1)
+
+    with open("__", "w+") as file:
 
         # write the opening braket of the json object
         file.writelines(["{"])
@@ -286,6 +337,6 @@ def main():
 
     file.close()
 
-    format_json_report_file(client_id, client_secret)
+    format_json_report(client_id, client_secret)
 
-sys.exit(main())
+main()
