@@ -301,6 +301,7 @@ def main():
     """
 
     try:
+       
         if len(sys.argv) ==5 :
             if "snmp" in sys.argv[1] :
                 snmp_mode = True
@@ -308,7 +309,8 @@ def main():
                 target_address = sys.argv[2]
                 client_id = sys.argv[3]
                 client_secret = sys.argv[4]
-        else:
+        elif len(sys.argv) ==3:
+            snmp_mode = False
             client_id = sys.argv[1]
             client_secret = sys.argv[2]
     except:
