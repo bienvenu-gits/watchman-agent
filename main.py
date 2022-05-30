@@ -3,6 +3,7 @@ import platform
 import re
 import requests
 import sys
+from snmp_fetching_stacks import *
 
 
 def request_error() :
@@ -12,6 +13,7 @@ def request_error() :
     print("   👉️Verify your network connection")
     print("\nSi le probleme persiiste contactez le +229 91911591 ou  contact@gits.bj\n")
     sys.exit(1)
+
 
 def get_container_name_and_images():
 
@@ -265,9 +267,9 @@ def format_json_report(client_id, client_secret):
 
     file_content = re.sub('\'', '"', file_content)
 
-    with open("__", "w+") as file_in_write_mode:
-        file_in_write_mode.write("")
-    file_in_write_mode.close()
+    # with open("__", "w+") as file_in_write_mode:
+    #     file_in_write_mode.write("")
+    # file_in_write_mode.close()
 
     try:
         
@@ -294,49 +296,101 @@ def format_json_report(client_id, client_secret):
 
 def main():
 
+    """
+        Getting params give for the agent execution
+    """
+
     try:
-        client_id = sys.argv[1]
-        client_secret = sys.argv[2]
+        if len(sys.argv) ==5 :
+            if "snmp" in sys.argv[1] :
+                snmp_mode = True
+                snmp_arg = sys.argv[1]
+                target_address = sys.argv[2]
+                client_id = sys.argv[3]
+                client_secret = sys.argv[4]
+        else:
+            client_id = sys.argv[1]
+            client_secret = sys.argv[2]
     except:
         print("\n❌️ Erreur d'execution ❌️")
         print("   Detail : Arguments requis pour l'exécution du script.\n")
         sys.exit(1)
 
-    token = None 
+
+    """
+        Authentication with the AGENT-ID and AGENT-SECRET
+    """
+
+    # token = None 
     
-    try:
+    # try:
         
-        ans = requests.get('http://192.168.100.74:8000/api/v1/agent/connect', headers={
-           "AGENT-ID":client_id,
-           "AGENT-SECRET":client_secret
-        })
+    #     ans = requests.get('http://192.168.100.74:8000/api/v1/agent/connect', headers={
+    #        "AGENT-ID":client_id,
+    #        "AGENT-SECRET":client_secret
+    #     })
 
-        if ans.status_code != 200:
-            print("\n❌️ Erreur d'execution ❌️")
-            print("   Detail : ", ans.json()["detail"])
+    #     if ans.status_code != 200:
+    #         print("\n❌️ Erreur d'execution ❌️")
+    #         print("   Detail : ", ans.json()["detail"])
            
-        else :
-            token = ans.json()["token"]
+    #     else :
+    #         token = ans.json()["token"]
 
-    except:
-        request_error()
+    # except:
+    #     request_error()
     
-    if token is None :
-        sys.exit(1)
+    # if token is None :
+    #     sys.exit(1)
 
-    with open("__", "w+") as file:
 
-        # write the opening braket of the json object
-        file.writelines(["{"])
+    """
+        Getting stacks from the target 
+    """
+    if not snmp_mode : 
 
-        file.writelines(["  \"%s\" : { " % platform.node(), ])
+        """
+            By cmd execution
+        """
 
-        network_host_audit(file)
+        with open("__", "w+") as file:
 
-        file.writelines([" ] } } "])
+            # write the opening braket of the json object
+            file.writelines(["{"])
 
-    file.close()
+            file.writelines(["  \"%s\" : { " % platform.node(), ])
 
-    format_json_report(client_id, client_secret)
+            network_host_audit(file)
+
+            file.writelines([" ] } } "])
+
+        file.close()
+
+        format_json_report(client_id, client_secret)
+
+
+    else :
+
+        """
+            By snmp mibs 
+        """
+        try : 
+            community = snmp_arg.split(":")[1]
+        except : 
+            print("\n❌️ Erreur d'execution ❌️")
+            print("   Detail : communauter non specifier .\n")
+            sys.exit(1)
+
+        hosts = get_network_hosts(target_address)
+        
+        report = getting_stacks_by_host_snmp(hosts,community)
+        
+        print(report)
+
+        with open("__", "w+") as file:
+            file.write("%s" % report)
+        file.close()
+        
+        format_json_report(client_id, client_secret)
 
 main()
