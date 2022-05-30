@@ -7,11 +7,11 @@ from snmp_fetching_stacks import *
 
 
 def request_error() :
-    print("\n❌️ Impossible de joindre le server ❌️\n")
-    print("   Essayer l'une des solution suivante : \n")
+    print("\n❌️ Unable to join th server ❌️\n")
+    print("   try one of the following solutions : \n")
     print("   👉️Try later")
     print("   👉️Verify your network connection")
-    print("\nSi le probleme persiiste contactez le +229 91911591 ou  contact@gits.bj\n")
+    print("\nPlease contact +229 21604252 - 91911591 or support@watchman.bj if the problem persists.\n")
     sys.exit(1)
 
 
@@ -267,9 +267,9 @@ def format_json_report(client_id, client_secret):
 
     file_content = re.sub('\'', '"', file_content)
 
-    # with open("__", "w+") as file_in_write_mode:
-    #     file_in_write_mode.write("")
-    # file_in_write_mode.close()
+    with open("__", "w+") as file_in_write_mode:
+        file_in_write_mode.write("")
+    file_in_write_mode.close()
 
     try:
         
@@ -285,7 +285,7 @@ def format_json_report(client_id, client_secret):
             )
 
         if ans.status_code != 200:
-            print("\n❌️ Erreur d'execution ❌️")
+            print("\n❌️ Execution error ❌️")
             print("   Detail : ", ans.json()["detail"])
 
 
@@ -312,8 +312,8 @@ def main():
             client_id = sys.argv[1]
             client_secret = sys.argv[2]
     except:
-        print("\n❌️ Erreur d'execution ❌️")
-        print("   Detail : Arguments requis pour l'exécution du script.\n")
+        print("\n❌️ Execution error ❌️")
+        print("   Detail : Arguments required for script execution.\n")
         sys.exit(1)
 
 
@@ -321,27 +321,27 @@ def main():
         Authentication with the AGENT-ID and AGENT-SECRET
     """
 
-    # token = None 
+    token = None 
     
-    # try:
+    try:
         
-    #     ans = requests.get('http://192.168.100.74:8000/api/v1/agent/connect', headers={
-    #        "AGENT-ID":client_id,
-    #        "AGENT-SECRET":client_secret
-    #     })
+        ans = requests.get('http://192.168.100.74:8000/api/v1/agent/connect', headers={
+           "AGENT-ID":client_id,
+           "AGENT-SECRET":client_secret
+        })
 
-    #     if ans.status_code != 200:
-    #         print("\n❌️ Erreur d'execution ❌️")
-    #         print("   Detail : ", ans.json()["detail"])
+        if ans.status_code != 200:
+            print("\n❌️ Authentication error  ❌️")
+            print("   Detail : ", ans.json()["detail"])
            
-    #     else :
-    #         token = ans.json()["token"]
+        else :
+            token = ans.json()["token"]
 
-    # except:
-    #     request_error()
+    except:
+        request_error()
     
-    # if token is None :
-    #     sys.exit(1)
+    if token is None :
+        sys.exit(1)
 
 
     """
@@ -377,8 +377,8 @@ def main():
         try : 
             community = snmp_arg.split(":")[1]
         except : 
-            print("\n❌️ Erreur d'execution ❌️")
-            print("   Detail : communauter non specifier .\n")
+            print("\n❌️ Execution error ❌️")
+            print("   Detail : snmp community not specify.\n")
             sys.exit(1)
 
         hosts = get_network_hosts(target_address)
