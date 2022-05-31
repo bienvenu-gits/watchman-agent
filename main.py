@@ -5,6 +5,24 @@ import sys
 import platform as pt
 from snmp_fetching_stacks import *
 
+# WEBHOOK_URL=""
+# CONNECT_URL=""
+
+def get_env_vars():
+
+    global WEBHOOK_URL
+    global CONNECT_URL
+
+    with open(".env","r") as env_file :
+        env_vars = env_file.readlines()
+        
+        for env_var in env_vars:
+
+            if "WEBHOOK_URL" in env_var :
+                WEBHOOK_URL = env_var.split("=")[1]
+               
+            elif "CONNECT_URL" in env_var :
+                CONNECT_URL =  env_var.split("=")[1]
 
 def request_error() :
     print("\n❌️ Unable to join th server ❌️\n")
@@ -274,7 +292,7 @@ def format_json_report(client_id, client_secret):
     try:
         
         ans = requests.post(
-            url='http://127.0.0.1:3000/api/agents/webhook/' , 
+            url=WEBHOOK_URL , 
             headers={
                         "AGENT-ID":client_id,
                         "AGENT-SECRET":client_secret 
@@ -327,7 +345,7 @@ def main():
     
     try:
         
-        ans = requests.get('http://127.0.0.1:3000/api/agents/connect', headers={
+        ans = requests.get(CONNECT_URL, headers={
            "AGENT-ID":client_id,
            "AGENT-SECRET":client_secret
         })
@@ -395,4 +413,5 @@ def main():
         
         format_json_report(client_id, client_secret)
 
+get_env_vars()
 main()
