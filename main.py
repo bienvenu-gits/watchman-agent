@@ -1,8 +1,8 @@
 import subprocess
-import platform
 import re
 import requests
 import sys
+import platform as pt
 from snmp_fetching_stacks import *
 
 
@@ -112,7 +112,7 @@ def get_host_packages(commande, host_os, file, container):
 
 def get_host_os():
 
-    if platform.system() == 'Windows':
+    if pt.system() == 'Windows':
         return 'Windows'
 
     commande_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
@@ -274,7 +274,7 @@ def format_json_report(client_id, client_secret):
     try:
         
         ans = requests.post(
-            url='http://192.168.100.74:8000/api/v1/agent/webhook/' , 
+            url='http://127.0.0.1:8000/api/v1/agent/webhook/' , 
             headers={
                         "AGENT-ID":client_id,
                         "AGENT-SECRET":client_secret 
@@ -327,11 +327,12 @@ def main():
     
     try:
         
-        ans = requests.get('http://192.168.100.74:8000/api/v1/agent/connect', headers={
+        ans = requests.get('http://127.0.0.1:8000/api/v1/agent/connect', headers={
            "AGENT-ID":client_id,
            "AGENT-SECRET":client_secret
         })
 
+      
         if ans.status_code != 200:
             print("\n❌️ Authentication error  ❌️")
             print("   Detail : ", ans.json()["detail"])
@@ -360,7 +361,7 @@ def main():
             # write the opening braket of the json object
             file.writelines(["{"])
 
-            file.writelines(["  \"%s\" : { " % platform.node(), ])
+            file.writelines(["  \"%s\" : { " % pt.node(), ])
 
             network_host_audit(file)
 
@@ -386,8 +387,7 @@ def main():
         hosts = get_network_hosts(target_address)
         
         report = getting_stacks_by_host_snmp(hosts,community)
-        
-        print(report)
+
 
         with open("__", "w+") as file:
             file.write("%s" % report)

@@ -78,6 +78,7 @@ def getting_stacks_by_host_snmp(active_hosts,community):
 
         hosts_report.append({
             "os":os_info,
+            "ipv4":host,
             "packages":stacks
         })       
 
