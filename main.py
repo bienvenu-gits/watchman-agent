@@ -274,7 +274,7 @@ def format_json_report(client_id, client_secret):
     try:
         
         ans = requests.post(
-            url='http://127.0.0.1:8000/api/v1/agent/webhook/' , 
+            url='http://127.0.0.1:3000/api/agents/webhook/' , 
             headers={
                         "AGENT-ID":client_id,
                         "AGENT-SECRET":client_secret 
@@ -327,7 +327,7 @@ def main():
     
     try:
         
-        ans = requests.get('http://127.0.0.1:8000/api/v1/agent/connect', headers={
+        ans = requests.get('http://127.0.0.1:3000/api/agents/connect', headers={
            "AGENT-ID":client_id,
            "AGENT-SECRET":client_secret
         })

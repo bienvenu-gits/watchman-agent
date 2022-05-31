@@ -68,7 +68,13 @@ def getting_stacks_by_host_snmp(active_hosts,community):
                             "name": "-".join(stack_names,versions_info[0]) , 
                             "version": versions_info[1]
                         })
-                       
+                    
+                    else:
+
+                        stacks.append({
+                            "name": stack , 
+                            "version": stack
+                        })
 
                 except: 
                     pass
