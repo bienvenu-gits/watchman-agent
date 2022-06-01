@@ -5,24 +5,24 @@ import sys
 import platform as pt
 from snmp_fetching_stacks import *
 
-# WEBHOOK_URL=""
-# CONNECT_URL=""
 
-def get_env_vars():
+def get_env_vars(env_path):
 
     global WEBHOOK_URL
     global CONNECT_URL
+    
 
-    with open(".env","r") as env_file :
+    with open(env_path,"r") as env_file :
         env_vars = env_file.readlines()
         
         for env_var in env_vars:
 
             if "WEBHOOK_URL" in env_var :
-                WEBHOOK_URL = env_var.split("=")[1]
-               
+                WEBHOOK_URL = env_var.split("=")[1].split("\n")[0]
+
             elif "CONNECT_URL" in env_var :
-                CONNECT_URL =  env_var.split("=")[1]
+                CONNECT_URL =  env_var.split("=")[1].split("\n")[0]
+
 
 def request_error() :
     print("\n❌️ Unable to join th server ❌️\n")
@@ -275,17 +275,17 @@ def network_host_audit(file):
 
 
 # format properly the content of the reported file to json syntax
-def format_json_report(client_id, client_secret):
+def format_json_report(client_id, client_secret,file):
 
     file_content = ""
 
-    with open("__", "r+") as file_in_read_mode:
+    with open(file, "r+") as file_in_read_mode:
         file_content = file_in_read_mode.read()
     file_in_read_mode.close()
 
     file_content = re.sub('\'', '"', file_content)
 
-    with open("__", "w+") as file_in_write_mode:
+    with open(file, "w+") as file_in_write_mode:
         file_in_write_mode.write("")
     file_in_write_mode.close()
 
@@ -317,25 +317,34 @@ def main():
     """
         Getting params give for the agent execution
     """
+    env_path=""
 
     try:
        
-        if len(sys.argv) ==5 :
+        if len(sys.argv) ==6 :
             if "snmp" in sys.argv[1] :
                 snmp_mode = True
                 snmp_arg = sys.argv[1]
                 target_address = sys.argv[2]
                 client_id = sys.argv[3]
                 client_secret = sys.argv[4]
-        elif len(sys.argv) ==3:
+                env_path = sys.argv[5]
+        elif len(sys.argv) ==4:
             snmp_mode = False
             client_id = sys.argv[1]
             client_secret = sys.argv[2]
+            env_path = sys.argv[3]
     except:
         print("\n❌️ Execution error ❌️")
         print("   Detail : Arguments required for script execution.\n")
         sys.exit(1)
 
+
+    """
+        Load URLs from env file
+    """
+
+    get_env_vars(env_path)
 
     """
         Authentication with the AGENT-ID and AGENT-SECRET
@@ -344,13 +353,14 @@ def main():
     token = None 
     
     try:
+        print("env",WEBHOOK_URL,CONNECT_URL)
         
         ans = requests.get(CONNECT_URL, headers={
            "AGENT-ID":client_id,
            "AGENT-SECRET":client_secret
         })
 
-      
+
         if ans.status_code != 200:
             print("\n❌️ Authentication error  ❌️")
             print("   Detail : ", ans.json()["detail"])
@@ -387,7 +397,7 @@ def main():
 
         file.close()
 
-        format_json_report(client_id, client_secret)
+        format_json_report(client_id, client_secret,"__")
 
 
     else :
@@ -407,11 +417,10 @@ def main():
         report = getting_stacks_by_host_snmp(hosts,community)
 
 
-        with open("__", "w+") as file:
+        with open("_", "w+") as file:
             file.write("%s" % report)
         file.close()
         
-        format_json_report(client_id, client_secret)
+        format_json_report(client_id, client_secret,"_")
 
-get_env_vars()
 main()
