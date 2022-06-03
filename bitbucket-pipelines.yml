@@ -60,4 +60,4 @@ pipelines:
               variables:
                 PYPI_USERNAME: $PYPI_USERNAME
                 PYPI_PASSWORD: $PYPI_PASSWORD
-                FOLDER: 'watchman_agent'
+                #FOLDER: 'watchman_agent'
