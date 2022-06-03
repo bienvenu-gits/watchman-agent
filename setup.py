@@ -2,9 +2,9 @@ from setuptools import setup
 
 setup(
     name="watchman-agent",
-    version="1.1.3",
-    # author = "Flobert Gantua" ,
-    # author_email = "fgantua32@gmail.com",
+    version="1.1.4",
+    author = "Watchman" ,
+    author_email = "support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
     # packages=["watchman_agent","watchman_agent/commands"],
 
