@@ -60,5 +60,4 @@ pipelines:
               variables:
                 PYPI_USERNAME: $PYPI_USERNAME
                 PYPI_PASSWORD: $PYPI_PASSWORD
-                DISTRIBUTIONS: 'commands/dist'
                 FOLDER: 'watchman_agent'
