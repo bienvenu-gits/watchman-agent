@@ -6,6 +6,9 @@ import platform as pt
 from scapy.layers.inet import IP, ICMP
 from scapy.sendrecv import sr1
 
+"""
+    Fetch Variables environment
+"""
 def get_env_vars(env_path):
 
     global WEBHOOK_URL
@@ -15,42 +18,52 @@ def get_env_vars(env_path):
     with open(env_path,"r") as env_file :
         env_vars = env_file.readlines()
         
-        for env_var in env_vars:
+        env_vars = [env_var.split("\n")[0] for env_var in env_vars  ]
 
-            if "WEBHOOK_URL" in env_var :
-                WEBHOOK_URL = env_var.split("=")[1].split("\n")[0]
 
-            elif "CONNECT_URL" in env_var :
-                CONNECT_URL =  env_var.split("=")[1].split("\n")[0]
+        try:
+            if "production" in env_vars[0] :
+                WEBHOOK_URL = env_vars[1].split("=")[1]
+                CONNECT_URL =  env_vars[2].split("=")[1]
+            elif "developement" in env_vars[0] :
+                WEBHOOK_URL = env_vars[3].split("=")[1]
+                CONNECT_URL =  env_vars[4].split("=")[1]
+            else : 
+                print("\n❌️ Unable to run watchman agent ❌️\n")
+                print("   You are probabily missing env vars.")
+                sys.exit(1)
+        except :
+            print("\n❌️ Unable to run watchman agent ❌️\n")
+            print("   You are probabily missing env vars.")
+            sys.exit(1)
 
 
 """
     Network Host Scanning
 """
-
 def get_network_hosts(target_hosts) :
 
     active_hosts = []
-
+    
     paquets_for_each_host = [p for p in IP(dst=[target_hosts])/ICMP()]
     
     for paquet in paquets_for_each_host:
+        try : 
+            answer = sr1( paquet , timeout=1)
+            try :
+                active_hosts.append(answer[IP].src)
+            except : 
+                pass
+        except OSError : 
+            print("Run agent as adminnistrator")
+            sys.exit(1)
 
-        answer = sr1( paquet , timeout=1)
-        try :
-            active_hosts.append(answer[IP].src)
-        except : 
-            pass
-
-        print("\n\n+++++")
-    
     return active_hosts
 
 
 """
-    Host Query
+    Host Query by snmp
 """
-
 def getting_stacks_by_host_snmp(active_hosts,community):
 
     hosts_report = []
@@ -112,6 +125,9 @@ def getting_stacks_by_host_snmp(active_hosts,community):
     return hosts_report
 
 
+"""
+    Display an error message
+"""
 def request_error() :
     print("\n❌️ Unable to join th server ❌️\n")
     print("   try one of the following solutions : \n")
@@ -121,6 +137,9 @@ def request_error() :
     sys.exit(1)
 
 
+"""
+    Get each container Name and image  
+"""
 def get_container_name_and_images():
 
     containers_info = {}
@@ -145,43 +164,39 @@ def get_container_name_and_images():
     return containers_info
 
 
+"""
+    Get packages and version result from commande line
+"""
 def get_host_packages(commande, host_os, file, container):
 
     if host_os == 'Windows':
-
+    
         commande_output = subprocess.check_output(commande, text=True)
 
         output_list = commande_output.split('\n')
-
+        output_list = [el for el in output_list if not "AVERTISSEMENT" in el and not "----" in el ]
+       
         packages_versions = []
 
         for el in output_list:
+
             el = el.split()
 
             el = [i for i in el if i != '']  # purge space
-            el = [i for i in el if not 'C:\\' in i]  # purge source
-
+            
             try:
+                index_version = el.index('Version')
+                if" ".join(el[:index_version]) != "Name" :
+                    packages_versions.append({ "name": " ".join(el[:index_version]) , "version":" ".join(el[index_version:])})
+            except : 
+                try:
+                    index_version = el.index("(version")
+                    packages_versions.append({ "name": " ".join(el[:index_version]) , "version":" ".join(el[index_version:])})
 
-                if el[-1][0].isdigit():
+                except:
+                    if " ".join(el[:-1]) != "----" and  " ".join(el[:-1]) != "" :
+                        packages_versions.append({ "name": " ".join(el[:-1]) , "version":" ".join(el[-1:])})
 
-                    p_v = {
-                        "name": " ".join(el[:-1]),
-                        "version": el[-1]
-                    }
-
-                elif el[-2][0].isdigit():
-                    p_v = {
-                        "name": " ".join(el[:-2]),
-                        "version": el[-2]
-                    }
-
-
-                if p_v["name"] != "" :
-                    packages_versions.append(p_v)
-                    
-            except:
-                pass
         
     else:
 
@@ -216,6 +231,9 @@ def get_host_packages(commande, host_os, file, container):
             f" + list Package for {container} container in {host_os} successfull !!!\n")
 
 
+"""
+    Get the host os 
+"""
 def get_host_os():
 
     if pt.system() == 'Windows':
@@ -229,6 +247,9 @@ def get_host_os():
             return line.split(':')[-1].lower().lstrip()
 
 
+"""
+    Format the package name and version for usage 
+"""
 def format_pkg_version(commande1_output, host_os):
 
     if "ubuntu" in host_os or "debian" in host_os:
@@ -240,7 +261,7 @@ def format_pkg_version(commande1_output, host_os):
     elif "centos" in host_os:
         output = subprocess.check_output(
             ["awk", "{print $1,$2}", "OFS=^^"], stdin=commande1_output.stdout)
-
+ 
     commande1_output.wait()
 
     pkg_versions = output.decode("utf-8").split("\n")
@@ -281,10 +302,13 @@ def format_pkg_version(commande1_output, host_os):
 
             except:
                 pass
-
+    
     return tab
 
 
+"""
+    Collect package name and version from commande line
+"""
 def network_host_audit(file):
 
     host_os = get_host_os()
@@ -292,7 +316,7 @@ def network_host_audit(file):
     if host_os == 'Windows':
 
         get_host_packages(
-            ["powershell", "-Command", "Get-Package"], host_os, file, None)
+            ["powershell", "-Command", "Get-Package" ,"|" , "Select" , "Name,Version" ], host_os, file, None)
 
     else:
 
@@ -361,8 +385,9 @@ def network_host_audit(file):
                 file.write(",")
         
 
-
-# format properly the content of the reported file to json syntax
+"""
+    Format properly the content of the reported file to json syntax
+"""
 def format_json_report(client_id, client_secret,file):
 
     file_content = ""
@@ -427,17 +452,15 @@ def main():
         print("   Detail : Arguments required for script execution.\n")
         sys.exit(1)
 
-
     """
         Load URLs from env file
     """
-
     get_env_vars(env_path)
+
 
     """
         Authentication with the AGENT-ID and AGENT-SECRET
     """
-
     token = None 
     
     try:
@@ -466,7 +489,7 @@ def main():
         Getting stacks from the target 
     """
     if not snmp_mode : 
-
+        
         """
             By cmd execution
         """
@@ -485,7 +508,6 @@ def main():
         file.close()
 
         format_json_report(client_id, client_secret,"__")
-
 
     else :
 
