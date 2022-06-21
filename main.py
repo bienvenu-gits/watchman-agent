@@ -114,11 +114,8 @@ def getting_stacks_by_host_snmp(active_hosts,community):
                     pass
 
         commande_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" %(community, host))
-        try : 
-            os_info = commande_output[1].split('"')[1]
-        except :
-            os_info = commande_output[1]
-
+        os_info = re.search('"(*.)"',commande_output[1])
+        
         if len(os_info) >= 50: 
             os_info = os_info.split("#")[1]
             
