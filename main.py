@@ -79,12 +79,13 @@ def getting_stacks_by_host_snmp(active_hosts,community):
             mibs = commande_output[1].split('\n')
             
             for mib in mibs :
+                try :
+                    stack = mib.split('"')[1]
 
-                stack = mib.split('"')[1]
-
-                versions_info = stack.split("-")[-2:]
-                stack_names =  stack.split("-")[:-2]
-                
+                    versions_info = stack.split("-")[-2:]
+                    stack_names =  stack.split("-")[:-2]
+                except :
+                    pass
 
                 try :
                         
@@ -117,13 +118,17 @@ def getting_stacks_by_host_snmp(active_hosts,community):
         
         try:
             os_info = re.search('"(.*)"',commande_output[1])
-            os_info = os_info.group(1)
+            if os_info is not None :
+                os_info = os_info.group(1)
+            else :
+                os_info = commande_output[1].split("#")[0]
+
         except:
-            os_info = commande_output[1].split("#")[1]
+            os_info = commande_output[1].split("#")[0]
 
         if len(os_info) >= 50: 
             os_info = os_info.split("#")[0]
-            
+        
         hosts_report.append({
             "os":os_info,
             "ipv4":host,
