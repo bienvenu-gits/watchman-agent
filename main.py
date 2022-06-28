@@ -183,34 +183,31 @@ def get_container_name_and_images():
 def get_host_packages(commande, host_os, file, container):
 
     if host_os == 'Windows':
-    
+
         commande_output = subprocess.check_output(commande, text=True)
 
         output_list = commande_output.split('\n')
-        output_list = [el for el in output_list if not "AVERTISSEMENT" in el and not "----" in el ]
-       
+
         packages_versions = []
-
+        
         for el in output_list:
-
+        
             el = el.split()
 
             el = [i for i in el if i != '']  # purge space
             
             try:
-                index_version = el.index('Version')
-                if" ".join(el[:index_version]) != "Name" :
-                    packages_versions.append({ "name": " ".join(el[:index_version]) , "version":" ".join(el[index_version:])})
-            except : 
-                try:
-                    index_version = el.index("(version")
-                    packages_versions.append({ "name": " ".join(el[:index_version]) , "version":" ".join(el[index_version:])})
-
-                except:
-                    if " ".join(el[:-1]) != "----" and  " ".join(el[:-1]) != "" :
-                        packages_versions.append({ "name": " ".join(el[:-1]) , "version":" ".join(el[-1:])})
-
-        
+                 
+                if el[-1][0].isdigit() and el[-1][-1].isdigit():
+                    p_v = {
+                        "name": " ".join(el[:-1]),
+                        "version": el[-1]
+                    }
+                    if p_v["name"] != "" :
+                        packages_versions.append(p_v)
+                                
+            except:
+                pass
     else:
 
         commande_output = subprocess.Popen(commande, stdout=subprocess.PIPE)
