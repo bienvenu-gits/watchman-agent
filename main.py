@@ -1,62 +1,102 @@
+import ipaddress
+import json
 import subprocess
 import re
+from pathlib import Path
+
+import click
+import keyring
 import requests
-import sys
 import platform as pt
+from environs import Env
+from keyring.errors import NoKeyringError
 from scapy.layers.inet import IP, ICMP
 from scapy.sendrecv import sr1
+from sqlitedict import SqliteDict
 
 """
     Fetch Variables environment
 """
-def get_env_vars(env_path):
+env = Env()
+env.read_env()
+ENV = env("ENV_MODE")
 
-    global WEBHOOK_URL
-    global CONNECT_URL
-    
+WEBHOOK_URL = env("WEBHOOK_URL")
+CONNECT_URL = env("CONNECT_URL")
 
-    with open(env_path,"r") as env_file :
-        env_vars = env_file.readlines()
-        
-        env_vars = [env_var.split("\n")[0] for env_var in env_vars  ]
+if ENV == "development":
+    WEBHOOK_URL = env("DEV_WEBHOOK_URL")
+    CONNECT_URL = env("DEV_CONNECT_URL")
 
 
+class KeyDB(object):
+    def __init__(self, table_name, db, mode="read"):
+        self.__db_object = None
+        self._table_name = table_name
+        self._db = db
+        self._mode = mode
+
+    def __enter__(self):
+        if self._mode == "read":
+            self.__db_object = SqliteDict(self._db, tablename=self._table_name, encode=json.dumps, decode=json.loads)
+
+        if self._mode == "write":
+            self.__db_object = SqliteDict(self._db, tablename=self._table_name, encode=json.dumps, decode=json.loads, autocommit=True)
+        return self
+
+    def read_value(self, key: str):
+        if key:
+            return self.__db_object[key]
+        return None
+
+    def insert_value(self, key: str, value: str):
+        if key and value and self._mode == "write":
+            self.__db_object[key] = value
+            return True
+        return False
+
+    def __exit__(self, type, val, tb):
+        self.__db_object.close()
+
+
+class IpType(click.ParamType):
+    name = "ip"
+
+    def convert(self, value, param, ctx):
         try:
-            if "production" in env_vars[0] :
-                WEBHOOK_URL = env_vars[1].split("=")[1]
-                CONNECT_URL =  env_vars[2].split("=")[1]
-            elif "developement" in env_vars[0] :
-                WEBHOOK_URL = env_vars[3].split("=")[1]
-                CONNECT_URL =  env_vars[4].split("=")[1]
-            else : 
-                print("\n❌️ Unable to run watchman agent ❌️\n")
-                print("   You are probabily missing env vars.")
-                sys.exit(1)
-        except :
-            print("\n❌️ Unable to run watchman agent ❌️\n")
-            print("   You are probabily missing env vars.")
-            sys.exit(1)
+            ip = ipaddress.ip_address(value)
+        except ValueError as e:
+            self.fail(
+                str(e),
+                param,
+                ctx,
+            )
+        return value
+
+
+def custom_exit(message: str):
+    raise SystemExit(message)
 
 
 """
     Network Host Scanning
 """
-def get_network_hosts(target_hosts) :
 
+
+def get_network_hosts(target_hosts):
     active_hosts = []
-    
-    paquets_for_each_host = [p for p in IP(dst=[target_hosts])/ICMP()]
-    
-    for paquet in paquets_for_each_host:
-        try : 
-            answer = sr1( paquet , timeout=1)
-            try :
+
+    packets_for_each_host = [packet for packet in IP(dst=[target_hosts]) / ICMP()]
+
+    for packet in packets_for_each_host:
+        try:
+            answer = sr1(packet, timeout=1)
+            try:
                 active_hosts.append(answer[IP].src)
-            except : 
+            except:
                 pass
-        except OSError : 
-            print("Run agent as adminnistrator")
-            sys.exit(1)
+        except OSError:
+            custom_exit("You must run as administrator")
 
     return active_hosts
 
@@ -64,76 +104,62 @@ def get_network_hosts(target_hosts) :
 """
     Host Query by snmp
 """
-def getting_stacks_by_host_snmp(active_hosts,community):
 
+
+def getting_stacks_by_host_snmp(active_hosts, community):
     hosts_report = []
-
     for host in active_hosts:
-        
         stacks = []
-
-        commande_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s 1.3.6.1.2.1.25.6.3.1.2" %(community, host))
-        
-        if commande_output[0] == 0:
-            
-            mibs = commande_output[1].split('\n')
-            
-            for mib in mibs :
-                try :
+        command_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s 1.3.6.1.2.1.25.6.3.1.2" % (community, host))
+        if command_output[0] == 0:
+            mibs = command_output[1].split('\n')
+            for mib in mibs:
+                try:
                     stack = mib.split('"')[1]
-
                     versions_info = stack.split("-")[-2:]
-                    stack_names =  stack.split("-")[:-2]
-                except :
+                    stack_names = stack.split("-")[:-2]
+                except:
                     pass
-
-                try :
-                        
-                    if versions_info[0][0].isdigit() : 
-                      
+                try:
+                    if versions_info[0][0].isdigit():
                         stacks.append({
-                            "name": "-".join(stack_names) , 
+                            "name": "-".join(stack_names),
                             "version": "-".join(versions_info)
                         })
-                        
-                        
                     elif versions_info[1][0].isdigit():
-
                         stacks.append({
-                            "name": "-".join(stack_names,versions_info[0]) , 
+                            "name": "-".join(stack_names, versions_info[0]),
                             "version": versions_info[1]
                         })
-                    
                     else:
-
                         stacks.append({
-                            "name": stack , 
+                            "name": stack,
                             "version": stack
                         })
 
-                except: 
+                except:
                     pass
 
-        commande_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" %(community, host))
-        
+        command_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" % (community, host))
+
         try:
-            os_info = re.search('"(.*)"',commande_output[1])
-            if os_info is not None :
+            os_info = re.search('"(.*)"', command_output[1])
+            if os_info is not None:
                 os_info = os_info.group(1)
-            else :
-                os_info = commande_output[1].split("#")[0]
+            else:
+                os_info = command_output[1].split("#")[0]
 
         except:
-            os_info = commande_output[1].split("#")[0]
+            os_info = command_output[1].split("#")[0]
 
-        if len(os_info) >= 50: 
+        if len(os_info) >= 50:
             os_info = os_info.split("#")[0]
-        
+
         hosts_report.append({
-            "os":os_info,
-            "ipv4":host,
-            "packages":stacks
-        })       
+            "os": os_info,
+            "ipv4": host,
+            "packages": stacks
+        })
 
     return hosts_report
 
@@ -141,35 +167,42 @@ def getting_stacks_by_host_snmp(active_hosts,community):
 """
     Display an error message
 """
-def request_error() :
-    print("\n❌️ Unable to join th server ❌️\n")
-    print("   try one of the following solutions : \n")
-    print("   👉️Try later")
-    print("   👉️Verify your network connection")
-    print("\nPlease contact +229 21604252 - 91911591 or support@watchman.bj if the problem persists.\n")
-    sys.exit(1)
+
+
+def request_error(error):
+    click.echo(error)
+    custom_exit(
+        """
+            Unable to join the server !
+            Try one of the following solutions:
+            \t- Try later
+            \t- Verify your network connection
+            Contact support at support@watchman.bj, if the problem persists.\n
+        """
+    )
 
 
 """
     Get each container Name and image  
 """
-def get_container_name_and_images():
 
+
+def get_container_name_and_images():
     containers_info = {}
 
     try:
-        commande_output = subprocess.run(
-            ["docker", "ps"], stdout=subprocess.PIPE)
-        commande_output = commande_output.stdout.decode("utf-8")
+        command_output = subprocess.run(
+            ["docker", "ps"], stdout=subprocess.PIPE, capture_output=True, text=True)
+        command_output = command_output.stdout
 
-        containers_general_data = commande_output.split('\n')
+        containers_general_data = command_output.split('\n')
         containers_general_data.pop(0)
 
         for el in containers_general_data:
             if el != '':
                 tab = el.split(' ')
-                if "alpine" in tab[3] or "ubuntu" in tab[3] or "debian" in tab[3] or "rehl" in tab[3] or "centos" in tab[3]:
-                    
+                if "alpine" in tab[3] or "ubuntu" in tab[3] or "debian" in tab[3] or "rehl" in tab[3] or "centos" in \
+                        tab[3]:
                     containers_info[tab[-1]] = tab[3]
     except:
         pass
@@ -178,41 +211,42 @@ def get_container_name_and_images():
 
 
 """
-    Get packages and version result from commande line
+    Get packages and version result from command line
 """
-def get_host_packages(commande, host_os, file, container):
 
+
+def get_host_packages(command, host_os, file, container):
     if host_os == 'Windows':
 
-        commande_output = subprocess.check_output(commande, text=True)
+        command_output = subprocess.check_output(command, text=True)
 
-        output_list = commande_output.split('\n')
+        output_list = command_output.split('\n')
 
         packages_versions = []
-        
+
         for el in output_list:
-        
+
             el = el.split()
 
             el = [i for i in el if i != '']  # purge space
-            
+
             try:
-                 
+
                 if el[-1][0].isdigit() and el[-1][-1].isdigit():
                     p_v = {
                         "name": " ".join(el[:-1]),
                         "version": el[-1]
                     }
-                    if p_v["name"] != "" :
+                    if p_v["name"] != "":
                         packages_versions.append(p_v)
-                                
+
             except:
                 pass
     else:
 
-        commande_output = subprocess.Popen(commande, stdout=subprocess.PIPE)
+        command_output = subprocess.Popen(command, stdout=subprocess.PIPE)
 
-        packages_versions = format_pkg_version(commande_output, host_os)
+        packages_versions = format_pkg_version(command_output, host_os)
 
     if container is None:
 
@@ -224,8 +258,7 @@ def get_host_packages(commande, host_os, file, container):
 
         ])
 
-        
-        print("\n\n❑ list Package for %s successfull !!!\n" % host_os)
+        click.echo("\n\n + Listing Packages for %s successfully !!!\n" % host_os)
     else:
 
         file.writelines([
@@ -237,22 +270,22 @@ def get_host_packages(commande, host_os, file, container):
 
         ])
 
-        print(
-            f" + list Package for {container} container in {host_os} successfull !!!\n")
+        click.echo(f" + Listing Packages for {container} container in {host_os} successfully !!!\n")
 
 
 """
     Get the host os 
 """
-def get_host_os():
 
+
+def get_host_os():
     if pt.system() == 'Windows':
         return 'Windows'
 
-    commande_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
-    commande_output_lines = commande_output.stdout.decode("utf-8").split('\n')
+    command_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
+    command_output_lines = command_output.stdout.decode("utf-8").split('\n')
 
-    for line in commande_output_lines:
+    for line in command_output_lines:
         if "system" in line.lower():
             return line.split(':')[-1].lower().lstrip()
 
@@ -260,19 +293,20 @@ def get_host_os():
 """
     Format the package name and version for usage 
 """
-def format_pkg_version(commande1_output, host_os):
 
+
+def format_pkg_version(command1_output, host_os):
     if "ubuntu" in host_os or "debian" in host_os:
         output = subprocess.check_output(
-            ["awk", "{print $2,$3}", "OFS=^^"], stdin=commande1_output.stdout)
+            ["awk", "{print $2,$3}", "OFS=^^"], stdin=command1_output.stdout)
     elif "alpine" in host_os:
         output = subprocess.check_output(
-            ["awk", "{print $1}"], stdin=commande1_output.stdout)
+            ["awk", "{print $1}"], stdin=command1_output.stdout)
     elif "centos" in host_os:
         output = subprocess.check_output(
-            ["awk", "{print $1,$2}", "OFS=^^"], stdin=commande1_output.stdout)
- 
-    commande1_output.wait()
+            ["awk", "{print $1,$2}", "OFS=^^"], stdin=command1_output.stdout)
+
+    command1_output.wait()
 
     pkg_versions = output.decode("utf-8").split("\n")
 
@@ -312,21 +346,21 @@ def format_pkg_version(commande1_output, host_os):
 
             except:
                 pass
-    
+
     return tab
 
 
 """
-    Collect package name and version from commande line
+    Collect package name and version from command line
 """
-def network_host_audit(file):
 
+
+def network_host_audit(file):
     host_os = get_host_os()
 
     if host_os == 'Windows':
-
         get_host_packages(
-            ["powershell", "-Command", "Get-Package" ,"|" , "Select" , "Name,Version" ], host_os, file, None)
+            ["powershell", "-Command", "Get-Package", "|", "Select", "Name,Version"], host_os, file, None)
 
     else:
 
@@ -341,9 +375,8 @@ def network_host_audit(file):
         elif "centos" in host_os:
             get_host_packages(["yum", "list", "installed"],
                               host_os, file, None)
-        else: 
-            print("😓️ Sorry, this type system is not supported yet;\n")
-            sys.exit(1)
+        else:
+            custom_exit("Sorry, this Operating System is not supported yet.\n")
     #########
     ##
     # start container inspection
@@ -360,153 +393,122 @@ def network_host_audit(file):
 
         if "alpine" in image:
             get_host_packages(["docker", "exec", container,
-                              "apk", "info", "-vv"], "alpine", file, container)
-            # write a coma after the closed bracket only if it rest object to write
+                               "apk", "info", "-vv"], "alpine", file, container)
+            # write a comma after the closed bracket only if it is not the last object to write
             if container != last_container:
-               
                 file.write(",")
 
         elif "ubuntu" in image:
             get_host_packages(["docker", "exec", container,
-                              "dpkg", "-l"], "ubuntu", file, container)
-            # write a coma after the closed bracket only if it rest object to write
+                               "dpkg", "-l"], "ubuntu", file, container)
+            # write a comma after the closed bracket only if it is not the last object to write
             if container != last_container:
                 file.write(",")
 
         elif "debian" in image:
             get_host_packages(["docker", "exec", container,
-                              "dpkg", "-l"], "debian", file, container)
-            # write a coma after the closed bracket only if it rest object to write
+                               "dpkg", "-l"], "debian", file, container)
+            # write a comma after the closed bracket only if it is not the last object to write
             if container != last_container:
                 file.write(",")
 
         elif "rehl" in image:
             get_host_packages(["docker", "exec", container,
-                              "rpm", "-qa"], "rehl", file, container)
-            # write a coma after the closed bracket only if it rest object to write
+                               "rpm", "-qa"], "rehl", file, container)
+            # write a comma after the closed bracket only if it is not the last object to write
             if container != last_container:
                 file.write(",")
 
         elif "centos" in image:
             get_host_packages(["docker", "exec", container, "yum",
-                              "list", "installed"], "centos", file, container)
-            # write a coma after the closed bracket only if it rest object to write
+                               "list", "installed"], "centos", file, container)
+            # write a comma after the closed bracket only if it is not the last object to write
             if container != last_container:
                 file.write(",")
-        
+
 
 """
     Format properly the content of the reported file to json syntax
 """
-def format_json_report(client_id, client_secret,file):
 
+
+def format_json_report(client_id, client_secret, file):
     file_content = ""
 
     with open(file, "r+") as file_in_read_mode:
         file_content = file_in_read_mode.read()
-    file_in_read_mode.close()
 
     file_content = re.sub('\'', '"', file_content)
 
     with open(file, "w+") as file_in_write_mode:
         file_in_write_mode.write("")
-    file_in_write_mode.close()
 
     try:
-        
-        ans = requests.post(
-            url=WEBHOOK_URL , 
+        response = requests.post(
+            url=WEBHOOK_URL,
             headers={
-                        "AGENT-ID":client_id,
-                        "AGENT-SECRET":client_secret 
-                    },
-            data= {
-                    "data": file_content
-                }
-            )
+                "AGENT-ID": client_id,
+                "AGENT-SECRET": client_secret
+            },
+            data={
+                "data": file_content
+            }
+        )
 
-        if ans.status_code != 200:
-            print("\n❌️ Execution error ❌️")
-            print("   Detail : ", ans.json()["detail"])
-
-
-    except:
-
-        request_error()
+        if response.status_code != 200:
+            click.echo("\nExecution error️")
+            click.echo("Message: ", response.json()["detail"])
+    except requests.exceptions.RequestException as e:
+        request_error(error=e)
 
 
-def main():
-
-    """
-        Getting params give for the agent execution
-    """
-    env_path=""
-
+@click.command()
+@click.option('--network-mode', is_flag=True, help='Run in network mode')
+@click.option("-c", "--community", type=str, default="public",
+              help="SNMP community used to authenticate the SNMP management station.", required=0)
+@click.option("-d", "--device", type=IpType(), help="The device ip address.")
+@click.argument("client-id", type=str, required=1)
+@click.argument("secret-key", type=str, required=1)
+@click.argument("envfile", type=str, required=0)
+def cli(network_mode, client_id, secret_key, community, device, envfile):
     try:
-       
-        if len(sys.argv) ==6 :
-            if "snmp" in sys.argv[1] :
-                snmp_mode = True
-                snmp_arg = sys.argv[1]
-                target_address = sys.argv[2]
-                client_id = sys.argv[3]
-                client_secret = sys.argv[4]
-                env_path = sys.argv[5]
-        elif len(sys.argv) ==4:
-            snmp_mode = False
-            client_id = sys.argv[1]
-            client_secret = sys.argv[2]
-            env_path = sys.argv[3]
-    except:
-        print("\n❌️ Execution error ❌️")
-        print("   Detail : Arguments required for script execution.\n")
-        sys.exit(1)
-
-    """
-        Load URLs from env file
-    """
-    get_env_vars(env_path)
-
-
-    """
-        Authentication with the AGENT-ID and AGENT-SECRET
-    """
-    token = None 
-    
-    try:
-        
-        ans = requests.get(CONNECT_URL, headers={
-           "AGENT-ID":client_id,
-           "AGENT-SECRET":client_secret
+        response = requests.get(CONNECT_URL, headers={
+            "AGENT-ID": client_id,
+            "AGENT-SECRET": secret_key
         })
 
-
-        if ans.status_code != 200:
-            print("\n❌️ Authentication error  ❌️")
-            print("   Detail : ", ans.json()["detail"])
-           
-        else :
-            token = ans.json()["token"]
-
-    except:
-        request_error()
-    
-    if token is None :
-        sys.exit(1)
-
-
+        if response.status_code == 200:
+            token = response.json()["token"]
+            if token:
+                try:
+                    # keyring may fail
+                    keyring.set_password("watchmanAgent", "token", token)
+                except NoKeyringError as e:
+                    # use db method
+                    with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db", mode="write") as obj:
+                        obj.insert_value("token", token)
+        else:
+            click.echo("\nAuthentication failed!!")
+            click.echo("Detail : ", response.json()["detail"])
+    except requests.exceptions.RequestException as e:
+        request_error(error=e)
+    try:
+        if keyring.get_password("watchmanAgent", "token") is None:
+            custom_exit("Authentication failed!!")
+    except NoKeyringError as e:
+        # use db method
+        with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db") as obj:
+            if obj.read_value("token") is None:
+                custom_exit("Authentication failed!!")
     """
         Getting stacks from the target 
     """
-    if not snmp_mode : 
-        
+    if not network_mode:
         """
             By cmd execution
         """
-
         with open("__", "w+") as file:
-
-            # write the opening braket of the json object
+            # write the opening bracket of the json object
             file.writelines(["{"])
 
             file.writelines(["  \"%s\" : { " % pt.node(), ])
@@ -516,30 +518,23 @@ def main():
             file.writelines([" ] } } "])
 
         file.close()
+        format_json_report(client_id, secret_key, "__")
 
-        format_json_report(client_id, client_secret,"__")
-
-    else :
-
+    else:
         """
             By snmp mibs 
         """
-        try : 
-            community = snmp_arg.split(":")[1]
-        except : 
-            print("\n❌️ Execution error ❌️")
-            print("   Detail : snmp community not specify.\n")
-            sys.exit(1)
+        if community is None:
+            custom_exit("Execution error: the snmp community is not specified.\n")
+        else:
+            hosts = get_network_hosts(device)
+            report = getting_stacks_by_host_snmp(hosts, community)
 
-        hosts = get_network_hosts(target_address)
-        
-        report = getting_stacks_by_host_snmp(hosts,community)
+            with open("_", "w+") as file:
+                file.write("%s" % report)
+            file.close()
+            format_json_report(client_id, secret_key, "_")
 
 
-        with open("_", "w+") as file:
-            file.write("%s" % report)
-        file.close()
-        
-        format_json_report(client_id, client_secret,"_")
-
-main()
+if __name__ == "__main__":
+    cli()
