@@ -64,13 +64,17 @@ class IpType(click.ParamType):
 
     def convert(self, value, param, ctx):
         try:
-            ip = ipaddress.ip_address(value)
-        except ValueError as e:
-            self.fail(
-                str(e),
-                param,
-                ctx,
-            )
+            ip = ipaddress.ip_network(value)
+        except: 
+            try:
+                ip = ipaddress.ip_address(value)
+            except ValueError as e:
+                print('failed')
+                self.fail(
+                    str(e),
+                    param,
+                    ctx,
+                )
         return value
 
 
