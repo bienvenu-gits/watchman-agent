@@ -1,7 +1,4 @@
-import ipaddress
-import json
-import subprocess
-import re
+import ipaddress, json, subprocess, re, nmap
 from pathlib import Path
 
 import click
@@ -246,6 +243,21 @@ def get_host_packages(command, host_os, file, container):
 
             except:
                 pass
+    elif host_os == "macOS":
+        try:
+            print(f"command {command}")
+            # Run the command and capture its output
+            result = subprocess.check_output(command, stderr=subprocess.STDOUT, text=True)
+
+            # Print the result
+            print("Command output:")
+            print(result)
+        except subprocess.CalledProcessError as e:
+            # If the command returns a non-zero exit status, handle the error
+            print(f"Error: Command '{e.cmd}' returned non-zero exit status {e.returncode}")
+            print("Error output:")
+            print(e.output)
+        
     else:
 
         command_output = subprocess.Popen(command, stdout=subprocess.PIPE)
@@ -285,6 +297,14 @@ def get_host_packages(command, host_os, file, container):
 def get_host_os():
     if pt.system() == 'Windows':
         return 'Windows'
+    elif pt.system() == 'Darwin':
+        command_output = subprocess.run(["sw_vers"], stdout=subprocess.PIPE)
+        command_output_lines = command_output.stdout.decode("utf-8").split('\n')
+        mac = re.search("macOS", str(command_output_lines))
+        if mac:
+            return "macOS"
+        else:
+            print("ProductName not found in the input data.")
 
     command_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
     command_output_lines = command_output.stdout.decode("utf-8").split('\n')
@@ -365,9 +385,10 @@ def network_host_audit(file):
     if host_os == 'Windows':
         get_host_packages(
             ["powershell", "-Command", "Get-Package", "|", "Select", "Name,Version"], host_os, file, None)
-
+    elif host_os == "macOS":
+        get_host_packages(["brew", "list", "--versions"],
+                              host_os, file, None)
     else:
-
         if "alpine" in host_os:
             get_host_packages(["apk", "info", "-vv"], host_os, file, None)
         elif "ubuntu" in host_os:
@@ -378,7 +399,7 @@ def network_host_audit(file):
             get_host_packages(["rpm", "-qa"], host_os, file, None)
         elif "centos" in host_os:
             get_host_packages(["yum", "list", "installed"],
-                              host_os, file, None)
+                              host_os, file, None)            
         else:
             custom_exit("Sorry, this Operating System is not supported yet.\n")
     #########
@@ -465,6 +486,18 @@ def format_json_report(client_id, client_secret, file):
     except requests.exceptions.RequestException as e:
         request_error(error=e)
 
+def scan_snmp_ports(network_prefix, snmp_port):
+    nm = nmap.PortScanner()
+    scan_args = f"-p {snmp_port}"
+    
+    # Perform the SNMP port scan on the specified network range
+    nm.scan(hosts=f"{network_prefix}/24", arguments=scan_args)
+    
+    # Iterate through the scan results and print hosts with the SNMP port open
+    for host, scan_result in nm.all_hosts().items():
+        if snmp_port in scan_result['tcp']:
+            print(f"Host: {host} - SNMP Port {snmp_port} is open")
+            
 
 @click.command()
 @click.option('--network-mode', is_flag=True, help='Run in network mode')
@@ -493,7 +526,7 @@ def cli(network_mode, client_id, secret_key, community, device, envfile):
                         obj.insert_value("token", token)
         else:
             click.echo("\nAuthentication failed!!")
-            click.echo("Detail : ", response.json()["detail"])
+            click.echo(f"Detail : {response.json()['detail']} ")
     except requests.exceptions.RequestException as e:
         request_error(error=e)
     try:
@@ -542,3 +575,8 @@ def cli(network_mode, client_id, secret_key, community, device, envfile):
 
 if __name__ == "__main__":
     cli()
+    
+    network_prefix = "192.168.1"  # Change this to your network's prefix
+    snmp_port = 161  # Default SNMP port
+    
+    scan_snmp_ports(network_prefix, snmp_port)
