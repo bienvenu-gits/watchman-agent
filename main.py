@@ -1,4 +1,6 @@
-import ipaddress, json, subprocess, re, nmap
+import ipaddress, json, subprocess, re, nmap, socket, paramiko, yaml, schedule, time
+import os
+from pysnmp.hlapi import *
 from pathlib import Path
 
 import click
@@ -24,6 +26,8 @@ CONNECT_URL = env("CONNECT_URL")
 if ENV == "development":
     WEBHOOK_URL = env("DEV_WEBHOOK_URL")
     CONNECT_URL = env("DEV_CONNECT_URL")
+    
+hour_range_value = 24
 
 
 class KeyDB(object):
@@ -244,36 +248,18 @@ def get_host_packages(command, host_os, file, container):
             except:
                 pass
     elif host_os == "macOS":
-        try:
-            print(f"command {command}")
-            # Run the command and capture its output
-            result = subprocess.check_output(command, stderr=subprocess.STDOUT, text=True)
-
-            # Print the result
-            print("Command output:")
-            print(result)
-        except subprocess.CalledProcessError as e:
-            # If the command returns a non-zero exit status, handle the error
-            print(f"Error: Command '{e.cmd}' returned non-zero exit status {e.returncode}")
-            print("Error output:")
-            print(e.output)
+        command_output = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        packages_versions = format_pkg_version(command_output, host_os)
         
     else:
-
         command_output = subprocess.Popen(command, stdout=subprocess.PIPE)
-
         packages_versions = format_pkg_version(command_output, host_os)
-
     if container is None:
-
         file.writelines([
-
             "\"os\" : \"%s\" , " % host_os,
             "\"packages\" : %s ," % packages_versions,
             "\"containers\" : [ "
-
         ])
-
         click.echo("\n\n + Listing Packages for %s successfully !!!\n" % host_os)
     else:
 
@@ -329,6 +315,9 @@ def format_pkg_version(command1_output, host_os):
     elif "centos" in host_os:
         output = subprocess.check_output(
             ["awk", "{print $1,$2}", "OFS=^^"], stdin=command1_output.stdout)
+    elif "macOS" in host_os:
+        output = subprocess.check_output(
+            ["cut", "-d", "\t", "-f", "1,2"], stdin=command1_output.stdout)
 
     command1_output.wait()
 
@@ -337,9 +326,7 @@ def format_pkg_version(command1_output, host_os):
     tab = []
 
     if host_os.split(' ')[0] in ["ubuntu", "debian", "centos"]:
-
         for pkg_version in pkg_versions:
-
             try:
                 p_v = pkg_version.split('^^')
 
@@ -485,20 +472,93 @@ def format_json_report(client_id, client_secret, file):
             click.echo("Message: ", response.json()["detail"])
     except requests.exceptions.RequestException as e:
         request_error(error=e)
+        
+def get_local_ip():
+    try:
+        # Create a socket object to retrieve the local IP address
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.1)  # Set a timeout for the socket operation
+        s.connect(("8.8.8.8", 80))  # Connect to a known external server
+        local_ip = s.getsockname()[0]  # Get the local IP address
+        s.close()
+        return local_ip
+    except Exception as e:
+        return str(e)
+    
+def get_public_ip(host_address):
+    try:
+        # Use socket.gethostbyname to retrieve the IP address
+        ip_address = socket.gethostbyname(host_address)
+        print(f"ip_address {ip_address}")
+        return ip_address
+    except socket.gaierror as error:
+        print(f"error {error}")
+        return None
+    
+def get_remote_os_with_snmp(ip_address, community_string):
+    try:
+        # Create an SNMP GET request
+        snmp_engine = SnmpEngine()
+        target = UdpTransportTarget((ip_address, 161))
+        context = ContextData()
+        oid = ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0))
+
+        error_indication, error_status, error_index, var_binds = next(
+            getCmd(snmp_engine, community_string, target, context, oid)
+        )
+
+        if error_indication:
+            return f"SNMP error: {error_indication}"
+
+        # Extract and return the OS information
+        os_info = var_binds[0][1].prettyPrint()
+        return os_info
+
+    except Exception as e:
+        return str(e)
+    
+def get_remote_os(ip_address, username, password):
+    try:
+        # Create an SSH client
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        # Connect to the remote machine
+        ssh.connect(ip_address, username=username, password=password, timeout=5)
+
+        # Run a command to retrieve OS information
+        stdin, stdout, stderr = ssh.exec_command("uname -a")  # Linux-specific command
+        os_info = stdout.read().decode().strip()
+
+        # Close the SSH connection
+        ssh.close()
+
+        return os_info
+    except Exception as e:
+        return str(e)
 
 def scan_snmp_ports(network_prefix, snmp_port):
     nm = nmap.PortScanner()
     scan_args = f"-p {snmp_port}"
+    print(f"scan_args {scan_args}")
     
     # Perform the SNMP port scan on the specified network range
     nm.scan(hosts=f"{network_prefix}/24", arguments=scan_args)
     
     # Iterate through the scan results and print hosts with the SNMP port open
-    for host, scan_result in nm.all_hosts().items():
-        if snmp_port in scan_result['tcp']:
-            print(f"Host: {host} - SNMP Port {snmp_port} is open")
+    if nm.all_hosts().items():
+        for host, scan_result in nm.all_hosts().items():
+            if snmp_port in scan_result['tcp']:
+                print(f"Host: {host} - SNMP Port {snmp_port} is open")
             
+def update_config(file_name, loaded_config_data, new_key, new_value):
+    loaded_config_data[new_key] = new_value
 
+    # Write the updated data back to the YAML file
+    with open(file_name, 'w') as config_file:
+        yaml.dump(loaded_config_data, config_file)
+    
+    
 @click.command()
 @click.option('--network-mode', is_flag=True, help='Run in network mode')
 @click.option("-c", "--community", type=str, default="public",
@@ -508,6 +568,37 @@ def scan_snmp_ports(network_prefix, snmp_port):
 @click.argument("secret-key", type=str, required=1)
 @click.argument("envfile", type=str, required=0)
 def cli(network_mode, client_id, secret_key, community, device, envfile):
+    
+    file_name = 'config.yml'
+
+    with open(file_name, 'r') as config_file:
+        loaded_config_data = yaml.safe_load(config_file)
+    
+    if 'cron_param' in loaded_config_data and 'hour_range' in loaded_config_data['cron_param']:
+        hour_range_value = loaded_config_data['cron_param']['hour_range']
+        print(f"Value of 'hour range of cron': {hour_range_value}")
+        
+    # update_config(file_name, loaded_config_data, "test", "new_value")
+    public_ip = get_public_ip("http://google.com/")
+    print(f"public_ip {public_ip}")
+    local_ip = get_local_ip()
+    print(f"local_ip {local_ip}")
+    network_prefix = "192.168.1"  # Change this to your network's prefix
+    snmp_port = 161  # Default SNMP port
+    
+    scan_snmp_ports(network_prefix, snmp_port)
+    
+    remote_ip = "209.97.189.19"  # Replace with the IP address of the remote machine
+    remote_username = "root"  # Replace with the username for SSH access
+    remote_password = "TpJvL2Es2s8zZQvVc28EvxKVgHCyCXxPUVYZedpKKumKhNVb9Czr49qahSZv"  # Replace with the password for SSH access
+
+    os_info = get_remote_os(remote_ip, remote_username, remote_password)
+    
+    if os_info:
+        print(f"Operating System on {remote_ip}: {os_info}")
+    else:
+        print(f"Failed to retrieve OS information for {remote_ip}")
+    
     try:
         response = requests.get(CONNECT_URL, headers={
             "AGENT-ID": client_id,
@@ -574,9 +665,9 @@ def cli(network_mode, client_id, secret_key, community, device, envfile):
 
 
 if __name__ == "__main__":
-    cli()
+    schedule.every(0.6).hours.do(cli)
+
+    while True:
+        schedule.run_pending()
+        time.sleep(10)
     
-    network_prefix = "192.168.1"  # Change this to your network's prefix
-    snmp_port = 161  # Default SNMP port
-    
-    scan_snmp_ports(network_prefix, snmp_port)

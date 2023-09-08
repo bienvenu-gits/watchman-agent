@@ -9,3 +9,7 @@ cython==3.0.2
 pyinstaller==5.13.2
 sqlitedict==2.1.0
 python-nmap
+paramiko
+pysnmp
+pyyaml
+schedule
