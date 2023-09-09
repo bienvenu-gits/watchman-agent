@@ -550,54 +550,80 @@ def scan_snmp_ports(network_prefix, snmp_port):
         for host, scan_result in nm.all_hosts().items():
             if snmp_port in scan_result['tcp']:
                 print(f"Host: {host} - SNMP Port {snmp_port} is open")
+                
+def read_config():
+    file_name = 'config.yml'
+    with open(file_name, 'r') as config_file:
+        loaded_config_data = yaml.safe_load(config_file)
+    return loaded_config_data
+    # if 'schedule' in loaded_config_data and 'hour_range' in loaded_config_data['schedule']:
+    #     hour_range_value = loaded_config_data['schedule']['hour_range']
+        
+        
             
 def update_config(file_name, loaded_config_data, new_key, new_value):
     loaded_config_data[new_key] = new_value
-
     # Write the updated data back to the YAML file
     with open(file_name, 'w') as config_file:
         yaml.dump(loaded_config_data, config_file)
     
+def run_not_network(client_id, secret_key):
+    """
+        By cmd execution
+    """
+    with open("__", "w+") as file:
+        # write the opening bracket of the json object
+        file.writelines(["{"])
+
+        file.writelines(["  \"%s\" : { " % pt.node(), ])
+
+        network_host_audit(file)
+
+        file.writelines([" ] } } "])
+
+    file.close()
+    format_json_report(client_id, secret_key, "__")
     
+def run_network(community, device, client_id, secret_key):
+    """
+        By snmp mibs 
+    """
+    if community is None:
+        custom_exit("Execution error: the snmp community is not specified.\n")
+    else:
+        hosts = get_network_hosts(device)
+        report = getting_stacks_by_host_snmp(hosts, community)
+
+        with open("_", "w+") as file:
+                file.write("%s" % report)
+        file.close()
+        format_json_report(client_id, secret_key, "_")
+            
+            
 @click.command()
 @click.option('--network-mode', is_flag=True, help='Run in network mode')
 @click.option("-c", "--community", type=str, default="public",
               help="SNMP community used to authenticate the SNMP management station.", required=0)
 @click.option("-d", "--device", type=IpType(), help="The device ip address.")
-@click.argument("client-id", type=str, required=1)
-@click.argument("secret-key", type=str, required=1)
+@click.argument("client-id", type=str, required=0)
+@click.argument("secret-key", type=str, required=0)
 @click.argument("envfile", type=str, required=0)
 def cli(network_mode, client_id, secret_key, community, device, envfile):
     
-    file_name = 'config.yml'
-
-    with open(file_name, 'r') as config_file:
-        loaded_config_data = yaml.safe_load(config_file)
+    config = read_config()
     
-    if 'cron_param' in loaded_config_data and 'hour_range' in loaded_config_data['cron_param']:
-        hour_range_value = loaded_config_data['cron_param']['hour_range']
-        print(f"Value of 'hour range of cron': {hour_range_value}")
-        
-    # update_config(file_name, loaded_config_data, "test", "new_value")
-    public_ip = get_public_ip("http://google.com/")
-    print(f"public_ip {public_ip}")
-    local_ip = get_local_ip()
-    print(f"local_ip {local_ip}")
-    network_prefix = "192.168.1"  # Change this to your network's prefix
-    snmp_port = 161  # Default SNMP port
+    schedule_conf = config.get('schedule', {})
+    hour_range = schedule_conf.get('hours', 0.6)
     
-    scan_snmp_ports(network_prefix, snmp_port)
     
-    remote_ip = "209.97.189.19"  # Replace with the IP address of the remote machine
-    remote_username = "root"  # Replace with the username for SSH access
-    remote_password = "TpJvL2Es2s8zZQvVc28EvxKVgHCyCXxPUVYZedpKKumKhNVb9Czr49qahSZv"  # Replace with the password for SSH access
-
-    os_info = get_remote_os(remote_ip, remote_username, remote_password)
+    runtime_conf = config.get('runtime', {})
+    mode = runtime_conf.get('mode', 'network' if network_mode else 'agent')
+    client_id = runtime_conf.get('client_id', client_id)
+    secret_key = runtime_conf.get('secret_key', secret_key)
     
-    if os_info:
-        print(f"Operating System on {remote_ip}: {os_info}")
-    else:
-        print(f"Failed to retrieve OS information for {remote_ip}")
+    network_conf = config.get('network', {})
+    community = network_conf.get('community', community)
+    ip = network_conf.get('ip', device)
     
     try:
         response = requests.get(CONNECT_URL, headers={
@@ -631,43 +657,17 @@ def cli(network_mode, client_id, secret_key, community, device, envfile):
     """
         Getting stacks from the target 
     """
-    if not network_mode:
-        """
-            By cmd execution
-        """
-        with open("__", "w+") as file:
-            # write the opening bracket of the json object
-            file.writelines(["{"])
-
-            file.writelines(["  \"%s\" : { " % pt.node(), ])
-
-            network_host_audit(file)
-
-            file.writelines([" ] } } "])
-
-        file.close()
-        format_json_report(client_id, secret_key, "__")
-
+    if mode == 'agent':
+        schedule.every(hour_range).hours.do(run_not_network, client_i=client_id, secret_key=secret_key)
     else:
-        """
-            By snmp mibs 
-        """
-        if community is None:
-            custom_exit("Execution error: the snmp community is not specified.\n")
-        else:
-            hosts = get_network_hosts(device)
-            report = getting_stacks_by_host_snmp(hosts, community)
-
-            with open("_", "w+") as file:
-                file.write("%s" % report)
-            file.close()
-            format_json_report(client_id, secret_key, "_")
-
-
-if __name__ == "__main__":
-    schedule.every(0.6).hours.do(cli)
-
+        schedule.every(hour_range).hours.do(run_network, community=community, device=ip, client_id=client_id, secret_key=secret_key)
+        
     while True:
         schedule.run_pending()
         time.sleep(10)
+        
+if __name__ == "__main__":
+    cli()
+    
+
     
