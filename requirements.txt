@@ -1,5 +1,5 @@
 requests==2.31.0
-setuptools==68.1.2
+setuptools==68.2.0
 scapy==2.5.0
 keyring==24.2.0
 python-crontab==3.0.0

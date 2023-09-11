@@ -1,14 +1,22 @@
-import ipaddress, json, subprocess, re, nmap, socket, paramiko, yaml, schedule, time
-import os
-from pysnmp.hlapi import *
+import ipaddress
+import json
+import nmap
+import paramiko
+import platform as pt
+import re
+import schedule
+import socket
+import subprocess
+import time
+import yaml
 from pathlib import Path
 
 import click
 import keyring
 import requests
-import platform as pt
 from environs import Env
 from keyring.errors import NoKeyringError
+from pysnmp.hlapi import *
 from scapy.layers.inet import IP, ICMP
 from scapy.sendrecv import sr1
 from sqlitedict import SqliteDict
@@ -26,7 +34,7 @@ CONNECT_URL = env("CONNECT_URL")
 if ENV == "development":
     WEBHOOK_URL = env("DEV_WEBHOOK_URL")
     CONNECT_URL = env("DEV_CONNECT_URL")
-    
+
 hour_range_value = 24
 
 
@@ -42,7 +50,8 @@ class KeyDB(object):
             self.__db_object = SqliteDict(self._db, tablename=self._table_name, encode=json.dumps, decode=json.loads)
 
         if self._mode == "write":
-            self.__db_object = SqliteDict(self._db, tablename=self._table_name, encode=json.dumps, decode=json.loads, autocommit=True)
+            self.__db_object = SqliteDict(self._db, tablename=self._table_name, encode=json.dumps, decode=json.loads,
+                                          autocommit=True)
         return self
 
     def read_value(self, key: str):
@@ -66,7 +75,7 @@ class IpType(click.ParamType):
     def convert(self, value, param, ctx):
         try:
             ip = ipaddress.ip_network(value)
-        except: 
+        except:
             try:
                 ip = ipaddress.ip_address(value)
             except ValueError as e:
@@ -250,7 +259,7 @@ def get_host_packages(command, host_os, file, container):
     elif host_os == "macOS":
         command_output = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         packages_versions = format_pkg_version(command_output, host_os)
-        
+
     else:
         command_output = subprocess.Popen(command, stdout=subprocess.PIPE)
         packages_versions = format_pkg_version(command_output, host_os)
@@ -374,7 +383,7 @@ def network_host_audit(file):
             ["powershell", "-Command", "Get-Package", "|", "Select", "Name,Version"], host_os, file, None)
     elif host_os == "macOS":
         get_host_packages(["brew", "list", "--versions"],
-                              host_os, file, None)
+                          host_os, file, None)
     else:
         if "alpine" in host_os:
             get_host_packages(["apk", "info", "-vv"], host_os, file, None)
@@ -386,7 +395,7 @@ def network_host_audit(file):
             get_host_packages(["rpm", "-qa"], host_os, file, None)
         elif "centos" in host_os:
             get_host_packages(["yum", "list", "installed"],
-                              host_os, file, None)            
+                              host_os, file, None)
         else:
             custom_exit("Sorry, this Operating System is not supported yet.\n")
     #########
@@ -472,7 +481,8 @@ def format_json_report(client_id, client_secret, file):
             click.echo("Message: ", response.json()["detail"])
     except requests.exceptions.RequestException as e:
         request_error(error=e)
-        
+
+
 def get_local_ip():
     try:
         # Create a socket object to retrieve the local IP address
@@ -484,7 +494,8 @@ def get_local_ip():
         return local_ip
     except Exception as e:
         return str(e)
-    
+
+
 def get_public_ip(host_address):
     try:
         # Use socket.gethostbyname to retrieve the IP address
@@ -494,17 +505,18 @@ def get_public_ip(host_address):
     except socket.gaierror as error:
         print(f"error {error}")
         return None
-    
+
+
 def get_remote_os_with_snmp(active_hosts):
     try:
         print(f"get_remote_os_with_snmp {active_hosts}")
         # demo.pysnmp.com
         config = read_config()
-            
+
         network_conf = config.get('network', {})
-            
-        network_snmp_conf = network_conf.get('snmp', {}) 
-        
+
+        network_snmp_conf = network_conf.get('snmp', {})
+
         # SNMPv3 credentials
         snmp_user = network_snmp_conf.get('user', None)
         snmp_auth_key = network_snmp_conf.get('auth_key', None)
@@ -513,7 +525,7 @@ def get_remote_os_with_snmp(active_hosts):
         snmp_engine_boots = 1  # Replace with the correct SNMP engine boots value
 
         # SNMPv3 engine ID (usually empty for most devices)
-        
+
         target_port = network_snmp_conf.get('port', 161)  # Default SNMP port
         print(f"snmp_user {snmp_user}")
         print(f"snmp_auth_key {snmp_auth_key}")
@@ -532,11 +544,11 @@ def get_remote_os_with_snmp(active_hosts):
 
         # Create SNMPv3 context
         context = ContextData()
-        
+
         print(f"get_remote_os_with_snmp {active_hosts}")
         for host in active_hosts:
-            
-            print(f"host {host}")    
+
+            print(f"host {host}")
             # SNMPv3 target
             target_host = get_public_ip(host)
             print(f"target_host {target_host}")
@@ -572,11 +584,12 @@ def get_remote_os_with_snmp(active_hosts):
                         print(f"{var_bind[0]}\n{var_bind[1]}\n")
             except Exception as e:
                 print(e)
-                
+
 
     except Exception as e:
         return str(e)
-    
+
+
 def get_remote_os(ip_address, username, password):
     try:
         # Create an SSH client
@@ -597,20 +610,22 @@ def get_remote_os(ip_address, username, password):
     except Exception as e:
         return str(e)
 
+
 def scan_snmp_ports(network_prefix, snmp_port):
     nm = nmap.PortScanner()
     scan_args = f"-p {snmp_port}"
     print(f"scan_args {scan_args}")
-    
+
     # Perform the SNMP port scan on the specified network range
     nm.scan(hosts=f"{network_prefix}/24", arguments=scan_args)
-    
+
     # Iterate through the scan results and print hosts with the SNMP port open
     if nm.all_hosts().items():
         for host, scan_result in nm.all_hosts().items():
             if snmp_port in scan_result['tcp']:
                 print(f"Host: {host} - SNMP Port {snmp_port} is open")
-                
+
+
 def read_config():
     file_name = 'config.yml'
     with open(file_name, 'r') as config_file:
@@ -618,13 +633,15 @@ def read_config():
     return loaded_config_data
     # if 'schedule' in loaded_config_data and 'hour_range' in loaded_config_data['schedule']:
     #     hour_range_value = loaded_config_data['schedule']['hour_range']
-                  
+
+
 def update_config(file_name, loaded_config_data, new_key, new_value):
     loaded_config_data[new_key] = new_value
     # Write the updated data back to the YAML file
     with open(file_name, 'w') as config_file:
         yaml.dump(loaded_config_data, config_file)
-    
+
+
 def run_not_network(client_id, secret_key):
     """
         By cmd execution
@@ -641,7 +658,8 @@ def run_not_network(client_id, secret_key):
 
     file.close()
     format_json_report(client_id, secret_key, "__")
-    
+
+
 def run_network(community, device, client_id, secret_key):
     """
         By snmp mibs 
@@ -656,11 +674,11 @@ def run_network(community, device, client_id, secret_key):
         report = get_remote_os_with_snmp(['demo.pysnmp.com'])
 
         with open("_", "w+") as file:
-                file.write("%s" % report)
+            file.write("%s" % report)
         file.close()
         format_json_report(client_id, secret_key, "_")
-            
-            
+
+
 @click.command()
 @click.option('--network-mode', is_flag=True, help='Run in network mode')
 @click.option("-c", "--community", type=str, default="public",
@@ -670,22 +688,20 @@ def run_network(community, device, client_id, secret_key):
 @click.argument("secret-key", type=str, required=0)
 @click.argument("envfile", type=str, required=0)
 def cli(network_mode, client_id, secret_key, community, device, envfile):
-    
     config = read_config()
-    
+
     schedule_conf = config.get('schedule', {})
     hour_range = schedule_conf.get('hours', 0.6)
-    
-    
+
     runtime_conf = config.get('runtime', {})
     mode = runtime_conf.get('mode', 'network' if network_mode else 'agent')
     client_id = runtime_conf.get('client_id', client_id)
     secret_key = runtime_conf.get('secret_key', secret_key)
-    
+
     network_conf = config.get('network', {})
     community = network_conf.get('community', community)
     ip = network_conf.get('ip', device)
-    
+
     try:
         response = requests.get(CONNECT_URL, headers={
             "AGENT-ID": client_id,
@@ -700,7 +716,8 @@ def cli(network_mode, client_id, secret_key, community, device, envfile):
                     keyring.set_password("watchmanAgent", "token", token)
                 except NoKeyringError as e:
                     # use db method
-                    with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db", mode="write") as obj:
+                    with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db",
+                               mode="write") as obj:
                         obj.insert_value("token", token)
         else:
             click.echo("\nAuthentication failed!!")
@@ -724,13 +741,11 @@ def cli(network_mode, client_id, secret_key, community, device, envfile):
     else:
         run_network(community=community, device=ip, client_id=client_id, secret_key=secret_key)
         # schedule.every(hour_range).hours.do(run_network, community=community, device=ip, client_id=client_id, secret_key=secret_key)
-        
+
     while True:
         schedule.run_pending()
         time.sleep(10)
-        
+
+
 if __name__ == "__main__":
     cli()
-    
-
-    
