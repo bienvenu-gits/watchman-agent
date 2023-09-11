@@ -495,24 +495,80 @@ def get_public_ip(host_address):
         print(f"error {error}")
         return None
     
-def get_remote_os_with_snmp(ip_address, community_string):
+def get_remote_os_with_snmp(active_hosts):
     try:
-        # Create an SNMP GET request
-        snmp_engine = SnmpEngine()
-        target = UdpTransportTarget((ip_address, 161))
-        context = ContextData()
-        oid = ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0))
+        print(f"get_remote_os_with_snmp {active_hosts}")
+        # demo.pysnmp.com
+        config = read_config()
+            
+        network_conf = config.get('network', {})
+            
+        network_snmp_conf = network_conf.get('snmp', {}) 
+        
+        # SNMPv3 credentials
+        snmp_user = network_snmp_conf.get('user', None)
+        snmp_auth_key = network_snmp_conf.get('auth_key', None)
+        snmp_priv_key = network_snmp_conf.get('priv_key', None)
 
-        error_indication, error_status, error_index, var_binds = next(
-            getCmd(snmp_engine, community_string, target, context, oid)
+        # SNMPv3 engine ID (usually empty for most devices)
+        
+        target_port = network_snmp_conf.get('port', 161)  # Default SNMP port
+        print(f"snmp_user {snmp_user}")
+        print(f"snmp_auth_key {snmp_auth_key}")
+        print(f"snmp_priv_key {snmp_priv_key}")
+
+        # Create SNMPv3 security settings
+        security_parameters = UsmUserData(
+            snmp_user,
+            snmp_auth_key,
+            snmp_priv_key,
+            authProtocol=usmHMACSHAAuthProtocol,
+            privProtocol=usmAesCfb128Protocol,
         )
 
-        if error_indication:
-            return f"SNMP error: {error_indication}"
+        # Create SNMPv3 context
+        context = ContextData()
+        
+        print(f"get_remote_os_with_snmp {active_hosts}")
+        for host in active_hosts:
+            
+            print(f"host {host}")    
+            # SNMPv3 target
+            target_host = get_public_ip(host)
+            print(f"target_host {target_host}")
+            print(f"security_parameters {security_parameters}")
+            print(f"target_port {target_port}")
+            print(f"context {context}")
+            # Create SNMP request
+            try:
+                get_request = getCmd(
+                    SnmpEngine(OctetString(hexValue='8000000001020304')),
+                    security_parameters,
+                    UdpTransportTarget((target_host, target_port)),
+                    context,
+                    ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0))
+                )
+                # get_request = getCmd(SnmpEngine(),
+                #   CommunityData('public'),
+                #   UdpTransportTarget(('demo.pysnmp.com', 161)),
+                #   ContextData(),
+                #   ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0)))
+                print(f"get_request {get_request}")
+                for i in get_request:
+                    print(f"i {i}")
 
-        # Extract and return the OS information
-        os_info = var_binds[0][1].prettyPrint()
-        return os_info
+                # Execute SNMP request and print results
+                error_indication, error_status, error_index, var_binds = next(get_request)
+
+                if error_indication:
+                    print(f"Error: {error_indication}")
+                else:
+                    print("SNMP response:")
+                    for var_bind in var_binds:
+                        print(f"{var_bind[0]}\n{var_bind[1]}\n")
+            except Exception as e:
+                print(e)
+                
 
     except Exception as e:
         return str(e)
@@ -558,9 +614,7 @@ def read_config():
     return loaded_config_data
     # if 'schedule' in loaded_config_data and 'hour_range' in loaded_config_data['schedule']:
     #     hour_range_value = loaded_config_data['schedule']['hour_range']
-        
-        
-            
+                  
 def update_config(file_name, loaded_config_data, new_key, new_value):
     loaded_config_data[new_key] = new_value
     # Write the updated data back to the YAML file
@@ -591,8 +645,11 @@ def run_network(community, device, client_id, secret_key):
     if community is None:
         custom_exit("Execution error: the snmp community is not specified.\n")
     else:
-        hosts = get_network_hosts(device)
-        report = getting_stacks_by_host_snmp(hosts, community)
+        print(f"RUN NETWORK")
+        # hosts = get_network_hosts(device)
+        # print(f"hosts {hosts}")
+        # report = getting_stacks_by_host_snmp(hosts, community)
+        report = get_remote_os_with_snmp(['demo.pysnmp.com'])
 
         with open("_", "w+") as file:
                 file.write("%s" % report)
@@ -658,9 +715,11 @@ def cli(network_mode, client_id, secret_key, community, device, envfile):
         Getting stacks from the target 
     """
     if mode == 'agent':
-        schedule.every(hour_range).hours.do(run_not_network, client_i=client_id, secret_key=secret_key)
+        # schedule.every(hour_range).hours.do(run_not_network, client_id=client_id, secret_key=secret_key)
+        run_not_network(client_id=client_id, secret_key=secret_key)
     else:
-        schedule.every(hour_range).hours.do(run_network, community=community, device=ip, client_id=client_id, secret_key=secret_key)
+        run_network(community=community, device=ip, client_id=client_id, secret_key=secret_key)
+        # schedule.every(hour_range).hours.do(run_network, community=community, device=ip, client_id=client_id, secret_key=secret_key)
         
     while True:
         schedule.run_pending()
