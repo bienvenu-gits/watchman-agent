@@ -1,7 +1,12 @@
 import ipaddress, json, subprocess, re, nmap, socket, paramiko, yaml, schedule, time
 import os
 from pysnmp.hlapi import *
+from pysnmp.entity import engine, config
+from pysnmp.carrier.asyncore.dgram import udp
+from pysnmp.entity.rfc3413 import cmdgen
+from pysnmp.entity.rfc3413 import cmdrsp, context
 from pathlib import Path
+import asyncio
 
 import click
 import keyring
@@ -499,9 +504,9 @@ def get_remote_os_with_snmp(active_hosts):
     try:
         print(f"get_remote_os_with_snmp {active_hosts}")
         # demo.pysnmp.com
-        config = read_config()
+        config_file = read_config()
             
-        network_conf = config.get('network', {})
+        network_conf = config_file.get('network', {})
             
         network_snmp_conf = network_conf.get('snmp', {}) 
         
@@ -509,8 +514,6 @@ def get_remote_os_with_snmp(active_hosts):
         snmp_user = network_snmp_conf.get('user', None)
         snmp_auth_key = network_snmp_conf.get('auth_key', None)
         snmp_priv_key = network_snmp_conf.get('priv_key', None)
-        snmp_engine_time = 12345  # Replace with the correct SNMP engine time
-        snmp_engine_boots = 1  # Replace with the correct SNMP engine boots value
 
         # SNMPv3 engine ID (usually empty for most devices)
         
@@ -526,12 +529,11 @@ def get_remote_os_with_snmp(active_hosts):
             snmp_priv_key,
             authProtocol=usmHMACSHAAuthProtocol,
             privProtocol=usmAesCfb128Protocol,
-            # securityEngineBoots=snmp_engine_boots,
-            # securityEngineTime=snmp_engine_time
+            securityEngineId=OctetString(hexValue='800000020109840301')
         )
 
         # Create SNMPv3 context
-        context = ContextData()
+        # context = ContextData()
         
         print(f"get_remote_os_with_snmp {active_hosts}")
         for host in active_hosts:
@@ -542,34 +544,42 @@ def get_remote_os_with_snmp(active_hosts):
             print(f"target_host {target_host}")
             print(f"security_parameters {security_parameters}")
             print(f"target_port {target_port}")
-            print(f"context {context}")
             # Create SNMP request
             try:
-                get_request = getCmd(
-                    SnmpEngine(),
-                    security_parameters,
-                    UdpTransportTarget((target_host, target_port)),
-                    context,
-                    ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0))
+                loop = asyncio.get_event_loop()
+
+                # Create SNMP engine with autogenernated engineID and pre-bound
+                # to socket transport dispatcher
+                snmpEngine = engine.SnmpEngine()
+
+                # Transport setup
+
+                # UDP over IPv4
+                config.addTransport(
+                    snmpEngine, udp.domainName, udp.UdpTransport().openServerMode(("20.163.207.223", 161))
                 )
-                # get_request = getCmd(SnmpEngine(),
-                #   CommunityData('public'),
-                #   UdpTransportTarget(('demo.pysnmp.com', 161)),
-                #   ContextData(),
-                #   ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0)))
-                print(f"get_request {get_request}")
-                for i in get_request:
-                    print(f"i {i}")
+                
+                # user: usr-sha-none, auth: SHA, priv AES
+                config.addV3User(
+                    snmpEngine,
+                    "usr-sha-aes128",
+                    config.usmHMACSHAAuthProtocol,
+                    "authkey1",
+                    config.usmAesCfb128Protocol,
+                    "privkey1",
+                )
+                config.addVacmUser(
+                    snmpEngine, 3, "usr-sha-aes128", "authPriv", (1, 3, 6, 1, 2, 1), (1, 3, 6, 1, 2, 1)
+                )
 
-                # Execute SNMP request and print results
-                error_indication, error_status, error_index, var_binds = next(get_request)
+                # Get default SNMP context this SNMP engine serves
+                snmpContext = context.SnmpContext(snmpEngine)
 
-                if error_indication:
-                    print(f"Error: {error_indication}")
-                else:
-                    print("SNMP response:")
-                    for var_bind in var_binds:
-                        print(f"{var_bind[0]}\n{var_bind[1]}\n")
+                # Register SNMP Applications at the SNMP engine for particular SNMP context
+                cmdrsp.GetCommandResponder(snmpEngine, snmpContext)
+
+                # Run asyncio main loop
+                loop.run_forever()
             except Exception as e:
                 print(e)
                 
