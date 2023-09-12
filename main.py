@@ -257,7 +257,8 @@ def get_host_packages(command, host_os, file, container):
             except:
                 pass
     elif host_os == "macOS":
-        command_output = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        command_output = subprocess.check_output(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        print(f"command_output {command_output}")
         packages_versions = format_pkg_version(command_output, host_os)
 
     else:
