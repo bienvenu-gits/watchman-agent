@@ -16,8 +16,8 @@ oid = '1.3.6.1.2.1.1.1.0'
 snmp_object = ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0))
 get_data = getCmd(SnmpEngine(),
                   CommunityData('public', mpModel=0),
-                  # UsmUserData(userName=security_username, authProtocol=auth_protocol, authKey=auth_password,
-                  #             privKey=privacy_password, privProtocol=privacy_protocol),
+                  UsmUserData(userName=security_username, authProtocol=auth_protocol, authKey=auth_password,
+                              privKey=privacy_password, privProtocol=privacy_protocol),
                   UdpTransportTarget((target_host, port)),
                   ContextData(),
                   snmp_object)

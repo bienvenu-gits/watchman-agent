@@ -317,7 +317,7 @@ def get_host_os():
 def format_pkg_version(command1_output, host_os):
     if "ubuntu" in host_os or "debian" in host_os:
         output = subprocess.check_output(
-            ["awk", "{print $2,$3}", "OFS=^^"], stdin=command1_output.stdout)
+            ["awk", "$1 == 'ii' {print $2, $3}", "OFS=^^"], stdin=command1_output.stdout)
     elif "alpine" in host_os:
         output = subprocess.check_output(
             ["awk", "{print $1}"], stdin=command1_output.stdout)
@@ -510,6 +510,8 @@ def get_public_ip(host_address):
 def get_remote_os_with_snmp(active_hosts):
     try:
         print(f"get_remote_os_with_snmp {active_hosts}")
+        
+        hosts_report = []
         # demo.pysnmp.com
         config = read_config()
 
@@ -557,31 +559,88 @@ def get_remote_os_with_snmp(active_hosts):
             print(f"context {context}")
             # Create SNMP request
             try:
-                get_request = getCmd(
-                    SnmpEngine(),
-                    security_parameters,
-                    UdpTransportTarget((target_host, target_port)),
-                    context,
-                    ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0))
-                )
+                # get_request = getCmd(
+                #     SnmpEngine(),
+                #     security_parameters,
+                #     UdpTransportTarget((target_host, target_port)),
+                #     context,
+                #     ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0))
+                # )
+                stacks = []
+                command_output = subprocess.getstatusoutput(f"snmpget -v3  -l authPriv -u {snmp_user} -a SHA -A {snmp_auth_key} -x AES -X {snmp_priv_key} {host} 1.3.6.1.2.1.25.6.3.1.2")
+                print(f"command_output {command_output}")
+                if command_output[0] == 0:
+                    print(f"command_output[0]")
+                    mibs = command_output[1].split('\n')
+                    print(f"mibs {mibs}")
+                    for mib in mibs:
+                        
+                        print(f"mib {mib}")
+                        try:
+                            stack = mib.split('"')[1]
+                            versions_info = stack.split("-")[-2:]
+                            stack_names = stack.split("-")[:-2]
+                        except:
+                            pass
+                        try:
+                            if versions_info[0][0].isdigit():
+                                stacks.append({
+                                    "name": "-".join(stack_names),
+                                    "version": "-".join(versions_info)
+                                })
+                            elif versions_info[1][0].isdigit():
+                                stacks.append({
+                                    "name": "-".join(stack_names, versions_info[0]),
+                                    "version": versions_info[1]
+                                })
+                            else:
+                                stacks.append({
+                                    "name": stack,
+                                    "version": stack
+                                })
+
+                        except:
+                            pass
+                        
+                command_output = subprocess.getstatusoutput(f"snmpget -v3  -l authPriv -u {snmp_user} -a SHA -A {snmp_auth_key} -x AES -X {snmp_priv_key} {target_host} .1.3.6")
+                try:
+                    os_info = re.search('"(.*)"', command_output[1])
+                    if os_info is not None:
+                        os_info = os_info.group(1)
+                    else:
+                        os_info = command_output[1].split("#")[0]
+
+                except:
+                    os_info = command_output[1].split("#")[0]
+
+                if len(os_info) >= 50:
+                    os_info = os_info.split("#")[0]
+
+                hosts_report.append({
+                    "os": os_info,
+                    "ipv4": host,
+                    "packages": stacks
+                })
+
+                return hosts_report
                 # get_request = getCmd(SnmpEngine(),
                 #   CommunityData('public'),
                 #   UdpTransportTarget(('demo.pysnmp.com', 161)),
                 #   ContextData(),
                 #   ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0)))
-                print(f"get_request {get_request}")
-                for i in get_request:
-                    print(f"i {i}")
+                # print(f"get_request {get_request}")
+                # for i in get_request:
+                #     print(f"i {i}")
 
-                # Execute SNMP request and print results
-                error_indication, error_status, error_index, var_binds = next(get_request)
+                # # Execute SNMP request and print results
+                # error_indication, error_status, error_index, var_binds = next(get_request)
 
-                if error_indication:
-                    print(f"Error: {error_indication}")
-                else:
-                    print("SNMP response:")
-                    for var_bind in var_binds:
-                        print(f"{var_bind[0]}\n{var_bind[1]}\n")
+                # if error_indication:
+                #     print(f"Error: {error_indication}")
+                # else:
+                #     print("SNMP response:")
+                #     for var_bind in var_binds:
+                #         print(f"{var_bind[0]}\n{var_bind[1]}\n")
             except Exception as e:
                 print(e)
 
@@ -668,15 +727,16 @@ def run_network(community, device, client_id, secret_key):
         custom_exit("Execution error: the snmp community is not specified.\n")
     else:
         print(f"RUN NETWORK")
-        # hosts = get_network_hosts(device)
+        target_host = get_public_ip(device)
+        # hosts = get_network_hosts(target_host)
         # print(f"hosts {hosts}")
-        # report = getting_stacks_by_host_snmp(hosts, community)
-        report = get_remote_os_with_snmp(['demo.pysnmp.com'])
+        report = getting_stacks_by_host_snmp([target_host], community)
+        # report = get_remote_os_with_snmp(['demo.pysnmp.com'])
 
-        with open("_", "w+") as file:
+        with open("___", "w+") as file:
             file.write("%s" % report)
         file.close()
-        format_json_report(client_id, secret_key, "_")
+        format_json_report(client_id, secret_key, "___")
 
 
 @click.command()
