@@ -1,5 +1,9 @@
 import ipaddress
 import json
+import select
+import struct
+import threading
+
 import nmap
 import paramiko
 import platform as pt
@@ -97,24 +101,149 @@ def custom_exit(message: str):
 """
 
 
-def get_network_hosts(target_hosts):
-    print(f"target_hosts {target_hosts}")
-    active_hosts = []
+def possible_hosts(cidr):
+    # Extraire le nombre de bits hôtes du CIDR
+    bits_hosts = 32 - int(cidr)
 
-    packets_for_each_host = [packet for packet in IP(dst=[target_hosts]) / ICMP()]
-    print(f"packets_for_each_host {packets_for_each_host}")
+    # Calculer le nombre d'hôtes possibles (2^n - 2 où n est le nombre de bits hôtes)
+    hosts = 2 ** bits_hosts - 2
 
-    for packet in packets_for_each_host:
-        print(f"packet---- {packet}")
+    return hosts
+
+
+def get_possible_active_hosts(ip_address, cidr):
+    if not is_valid_ip(ip_address):
+        raise ValueError("Invalid ip address")
+
+    cidr_format = f'{ip_address}/{cidr}'
+    # Utilisez la bibliothèque ipaddress pour analyser le CIDR
+    network = ipaddress.IPv4Network(cidr_format, strict=False)
+
+    # Obtenez la liste des adresses IP possibles dans le réseau
+    hosts = []
+
+    threads = []
+    for ip in network.hosts():
+        host = str(ip)
+        thread = threading.Thread(target=scan_up_host_and_append, args=(host, hosts))
+        thread.start()
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
+
+    return hosts
+
+
+def get_network_ip_address(ip, cidr):
+    if not is_valid_ip(ip):
+        raise ValueError("Invalid ip address")
+
+    cidr_format = f'{ip}/{cidr}'
+    # Utilisez la bibliothèque ipaddress pour analyser le CIDR
+    network = ipaddress.IPv4Network(cidr_format, strict=False)
+
+    # Obtenez l'adresse réseau sous forme de chaîne de caractères
+    ip_address = network.network_address
+
+    return str(ip_address)
+
+
+def is_valid_ip(ip):
+    try:
+        # Tentez de créer un objet IP à partir de la chaîne donnée
+        ip = ipaddress.IPv4Address(ip)
+        return True
+    except ipaddress.AddressValueError:
+        return False
+
+
+def is_ip_active(ip):
+    try:
+        # Exécutez la commande de ping
+        result = subprocess.run(['ping', '-c', '1', '-w', '5', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True)
+
+        # Vérifiez le code de retour pour déterminer si le ping a réussi
+        if result.returncode == 0:
+            # Le ping a réussi, l'adresse IP est active
+            return True
+        else:
+            if ip == "192.168.100.161":
+                print(result)
+            # Le ping a échoué, l'adresse IP est inactive
+            return False
+    except Exception as e:
+        if ip == "192.168.100.161":
+            print(e)
+        # Une erreur s'est produite, l'adresse IP est probablement inactive
+        return False
+
+
+def snmp_scanner(ip, ports: list = None):
+    if ports is None:
+        ports = [161, 162]
+
+    open_ports = []
+
+    for port in ports:
         try:
-            answer = sr1(packet, timeout=1)
-            print(f"answer {answer}")
-            try:
-                active_hosts.append(answer[IP].src)
-            except:
-                pass
-        except OSError:
-            custom_exit("You must run as administrator")
+            # Créez un objet socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            # Fixez un timeout court pour la connexion
+            s.settimeout(1)
+
+            # Tentez de se connecter à l'adresse IP et au port donnés
+            s.connect((ip, port))
+            # Si la connexion réussit, le port est ouvert
+            print(f'IP : {ip}, Port: {port}, Status: open.')
+            open_ports.append(port)
+        except Exception as e:
+            print(f'Connexion exception the host must probably filtering the port. Reason: {e}')
+            print(f'IP : {ip}, Port: {port}, Status: closed.')
+    return open_ports
+
+
+def scan_snmp_and_append(ip, snmp_port, active_hosts):
+    print(f"Scanning SNMP open host {ip}...")
+    scan_result = snmp_scanner(ip=ip, ports=[snmp_port, 162])
+    if len(scan_result) > 0:
+        active_hosts.append(ip)
+
+
+def scan_up_host_and_append(ip, active_hosts):
+    print(f"Scanning open host {ip}...")
+    active = is_ip_active(ip=ip)
+    if active:
+        active_hosts.append(ip)
+
+
+def get_snmp_hosts(network):
+    print(f"target network {network}")
+    active_hosts = []
+    config = read_config()
+    net_conf = config.get('network', {})
+    cidr = net_conf.get('cidr', 24)
+    ip = net_conf.get('ip', None)
+    snmp_port = net_conf.get('snmp', {}).get('port', None)
+
+    if not ip:
+        raise ValueError("The network ip address must be provided.")
+
+    if not snmp_port:
+        raise ValueError("The configured snmp port must be provided.")
+
+    hosts = get_possible_active_hosts(ip_address=ip, cidr=cidr)
+
+    threads = []
+    for host in hosts:
+        thread = threading.Thread(target=scan_snmp_and_append, args=(host, snmp_port, active_hosts))
+        thread.start()
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
 
     return active_hosts
 
@@ -128,7 +257,7 @@ def getting_stacks_by_host_snmp(active_hosts, community):
     hosts_report = []
     for host in active_hosts:
         stacks = []
-        command_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s 1.3.6.1.2.1.25.6.3.1.2" % (community, host))
+        command_output = subprocess.getstatusoutput("snmpwalk -v2c -c %s %s 1.3.6.1.2.1.25.6.3.1.2" % (community, host))
         if command_output[0] == 0:
             mibs = command_output[1].split('\n')
             for mib in mibs:
@@ -155,7 +284,8 @@ def getting_stacks_by_host_snmp(active_hosts, community):
                             "version": stack
                         })
 
-                except:
+                except Exception as e:
+                    print(f"Exception in getting stacks snmp: {e}")
                     pass
 
         command_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" % (community, host))
@@ -514,7 +644,7 @@ def get_public_ip(host_address):
 def get_remote_os_with_snmp(active_hosts):
     try:
         print(f"get_remote_os_with_snmp {active_hosts}")
-        
+
         hosts_report = []
         # demo.pysnmp.com
         config = read_config()
@@ -553,7 +683,6 @@ def get_remote_os_with_snmp(active_hosts):
 
         print(f"get_remote_os_with_snmp {active_hosts}")
         for host in active_hosts:
-
             print(f"host {host}")
             # SNMPv3 target
             target_host = get_public_ip(host)
@@ -571,14 +700,15 @@ def get_remote_os_with_snmp(active_hosts):
                 #     ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0))
                 # )
                 stacks = []
-                command_output = subprocess.getstatusoutput(f"snmpget -v3  -l authPriv -u {snmp_user} -a SHA -A {snmp_auth_key} -x AES -X {snmp_priv_key} {host} 1.3.6.1.2.1.25.6.3.1.2")
+                command_output = subprocess.getstatusoutput(
+                    f"snmpget -v3  -l authPriv -u {snmp_user} -a SHA -A {snmp_auth_key} -x AES -X {snmp_priv_key} {host} 1.3.6.1.2.1.25.6.3.1.2")
                 print(f"command_output {command_output}")
                 if command_output[0] == 0:
                     print(f"command_output[0]")
                     mibs = command_output[1].split('\n')
                     print(f"mibs {mibs}")
                     for mib in mibs:
-                        
+
                         print(f"mib {mib}")
                         try:
                             stack = mib.split('"')[1]
@@ -605,8 +735,9 @@ def get_remote_os_with_snmp(active_hosts):
 
                         except:
                             pass
-                        
-                command_output = subprocess.getstatusoutput(f"snmpget -v3  -l authPriv -u {snmp_user} -a SHA -A {snmp_auth_key} -x AES -X {snmp_priv_key} {target_host} .1.3.6")
+
+                command_output = subprocess.getstatusoutput(
+                    f"snmpget -v3  -l authPriv -u {snmp_user} -a SHA -A {snmp_auth_key} -x AES -X {snmp_priv_key} {target_host} .1.3.6")
                 try:
                     os_info = re.search('"(.*)"', command_output[1])
                     if os_info is not None:
@@ -648,45 +779,8 @@ def get_remote_os_with_snmp(active_hosts):
             except Exception as e:
                 print(e)
 
-
     except Exception as e:
         return str(e)
-
-
-def get_remote_os(ip_address, username, password):
-    try:
-        # Create an SSH client
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-        # Connect to the remote machine
-        ssh.connect(ip_address, username=username, password=password, timeout=5)
-
-        # Run a command to retrieve OS information
-        stdin, stdout, stderr = ssh.exec_command("uname -a")  # Linux-specific command
-        os_info = stdout.read().decode().strip()
-
-        # Close the SSH connection
-        ssh.close()
-
-        return os_info
-    except Exception as e:
-        return str(e)
-
-
-def scan_snmp_ports(network_prefix, snmp_port):
-    nm = nmap.PortScanner()
-    scan_args = f"-p {snmp_port}"
-    print(f"scan_args {scan_args}")
-
-    # Perform the SNMP port scan on the specified network range
-    nm.scan(hosts=f"{network_prefix}/24", arguments=scan_args)
-
-    # Iterate through the scan results and print hosts with the SNMP port open
-    if nm.all_hosts().items():
-        for host, scan_result in nm.all_hosts().items():
-            if snmp_port in scan_result['tcp']:
-                print(f"Host: {host} - SNMP Port {snmp_port} is open")
 
 
 def read_config():
@@ -732,7 +826,7 @@ def run_network(community, device, client_id, secret_key):
     else:
         print(f"RUN NETWORK")
         # target_host = get_public_ip(device)
-        hosts = get_network_hosts(device)
+        hosts = get_snmp_hosts(device)
         print(f"hosts {hosts}")
         report = getting_stacks_by_host_snmp(hosts, community)
         # report = get_remote_os_with_snmp(['demo.pysnmp.com'])
@@ -741,7 +835,8 @@ def run_network(community, device, client_id, secret_key):
             file.write("%s" % report)
         file.close()
         format_json_report(client_id, secret_key, "___")
-        
+
+
 def scan_network(ip, mask, port):
     network = ip.split('.')[:3]  # Get the first three octets of the IP address
     for i in range(1, 256):
