@@ -98,13 +98,17 @@ def custom_exit(message: str):
 
 
 def get_network_hosts(target_hosts):
+    print(f"target_hosts {target_hosts}")
     active_hosts = []
 
     packets_for_each_host = [packet for packet in IP(dst=[target_hosts]) / ICMP()]
+    print(f"packets_for_each_host {packets_for_each_host}")
 
     for packet in packets_for_each_host:
+        print(f"packet---- {packet}")
         try:
             answer = sr1(packet, timeout=1)
+            print(f"answer {answer}")
             try:
                 active_hosts.append(answer[IP].src)
             except:
@@ -257,8 +261,7 @@ def get_host_packages(command, host_os, file, container):
             except:
                 pass
     elif host_os == "macOS":
-        command_output = subprocess.check_output(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        print(f"command_output {command_output}")
+        command_output = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         packages_versions = format_pkg_version(command_output, host_os)
 
     else:
@@ -728,16 +731,28 @@ def run_network(community, device, client_id, secret_key):
         custom_exit("Execution error: the snmp community is not specified.\n")
     else:
         print(f"RUN NETWORK")
-        target_host = get_public_ip(device)
-        # hosts = get_network_hosts(target_host)
-        # print(f"hosts {hosts}")
-        report = getting_stacks_by_host_snmp([target_host], community)
+        # target_host = get_public_ip(device)
+        hosts = get_network_hosts(device)
+        print(f"hosts {hosts}")
+        report = getting_stacks_by_host_snmp(hosts, community)
         # report = get_remote_os_with_snmp(['demo.pysnmp.com'])
 
         with open("___", "w+") as file:
             file.write("%s" % report)
         file.close()
         format_json_report(client_id, secret_key, "___")
+        
+def scan_network(ip, mask, port):
+    network = ip.split('.')[:3]  # Get the first three octets of the IP address
+    for i in range(1, 256):
+        target_ip = f"{network[0]}.{network[1]}.{network[2]}.{i}"
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)  # Set a timeout for the connection attempt
+                s.connect((target_ip, port))
+                print(f"Port {port} is open on {target_ip}")
+        except (socket.timeout, ConnectionRefusedError):
+            pass
 
 
 @click.command()

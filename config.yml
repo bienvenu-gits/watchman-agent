@@ -1,5 +1,5 @@
 runtime:
-  mode: 'agent' #'network'
+  mode: 'network' #'agent' #
   client_id: "g6wW5YVrD6J3IwvY6DB4jEyq7iGQkVHJhwyDYHc0"
   secret_key: "VGwDqOAT6CgtoPQL1WUCcsyBZiMHbXEHaXGQS1EQbyzOnbWTanTC6QVNrM4m"
 schedule:
@@ -9,7 +9,7 @@ schedule:
   secondes: 20
 network:
   cidr: 24
-  ip: "demo.pysnmp.com" #192.168.0.0
+  ip: "192.168.100.0" #"demo.pysnmp.com" #
   excempt: ['192.168.6.10', '192.168.8.16', '192.168.6.10']
   snmp:
     community: 'public'
