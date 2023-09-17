@@ -124,6 +124,10 @@ def get_possible_active_hosts(ip_address, cidr):
 
     threads = []
     for ip in network.hosts():
+        if ip in (network.network_address, network.broadcast_address):
+            # Skip network and broadcast addresses
+            continue
+
         host = str(ip)
         thread = threading.Thread(target=scan_up_host_and_append, args=(host, hosts))
         thread.start()
@@ -255,7 +259,8 @@ def get_snmp_hosts(network):
 
 def getting_stacks_by_host_snmp(active_hosts, community):
     hosts_report = []
-    for host in active_hosts:
+    # for host in active_hosts:
+    for host in ['192.168.100.114']:
         stacks = []
         command_output = subprocess.getstatusoutput("snmpwalk -v2c -c %s %s 1.3.6.1.2.1.25.6.3.1.2" % (community, host))
         if command_output[0] == 0:
@@ -625,7 +630,7 @@ def get_local_ip():
         s.connect(("8.8.8.8", 80))  # Connect to a known external server
         local_ip = s.getsockname()[0]  # Get the local IP address
         s.close()
-        return local_ip
+        return local_ipun
     except Exception as e:
         return str(e)
 
