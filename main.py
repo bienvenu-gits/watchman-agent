@@ -4,8 +4,6 @@ import select
 import struct
 import threading
 
-import nmap
-import paramiko
 import platform as pt
 import re
 import schedule
@@ -149,13 +147,26 @@ def get_network_ip_address(ip, cidr):
     return str(ip_address)
 
 
+# def is_valid_ip(ip):
+#     try:
+#         # Tentez de créer un objet IP à partir de la chaîne donnée
+#         ip = ipaddress.IPv4Address(ip)
+#         return True
+#     except ipaddress.AddressValueError:
+#         return False
+
 def is_valid_ip(ip):
     try:
-        # Tentez de créer un objet IP à partir de la chaîne donnée
-        ip = ipaddress.IPv4Address(ip)
+        # Attempt to create a socket connection to the IP address and port 0
+        socket.inet_pton(socket.AF_INET, ip)
         return True
-    except ipaddress.AddressValueError:
-        return False
+    except socket.error:
+        try:
+            # Attempt to create a socket connection to the IP address and port 0 for IPv6
+            socket.inet_pton(socket.AF_INET6, ip)
+            return True
+        except socket.error:
+            return False
 
 
 def is_ip_active(ip):
@@ -163,7 +174,7 @@ def is_ip_active(ip):
         # Exécutez la commande de ping
         result = subprocess.run(['ping', '-c', '1', '-w', '5', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 text=True)
-
+        print(f"is active result {result}")
         # Vérifiez le code de retour pour déterminer si le ping a réussi
         if result.returncode == 0:
             # Le ping a réussi, l'adresse IP est active
@@ -174,8 +185,7 @@ def is_ip_active(ip):
             # Le ping a échoué, l'adresse IP est inactive
             return False
     except Exception as e:
-        if ip == "192.168.100.161":
-            print(e)
+        print(e)
         # Une erreur s'est produite, l'adresse IP est probablement inactive
         return False
 
@@ -210,6 +220,7 @@ def scan_snmp_and_append(ip, snmp_port, active_hosts):
     scan_result = snmp_scanner(ip=ip, ports=[snmp_port, 162])
     if len(scan_result) > 0:
         active_hosts.append(ip)
+    return active_hosts
 
 
 def scan_up_host_and_append(ip, active_hosts):
@@ -217,6 +228,7 @@ def scan_up_host_and_append(ip, active_hosts):
     active = is_ip_active(ip=ip)
     if active:
         active_hosts.append(ip)
+    return active_hosts
 
 
 def get_snmp_hosts(network):
