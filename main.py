@@ -2,6 +2,7 @@ import ipaddress
 import json
 import select
 import struct
+import sys
 import threading
 
 import nmap
@@ -40,6 +41,13 @@ if ENV == "development":
     CONNECT_URL = env("DEV_CONNECT_URL")
 
 hour_range_value = 24
+
+
+class WatchmanCLI(click.Group):
+    def resolve_command(self, ctx, args):
+        if not args and not ctx.protected_args:
+            args = ['default']
+        return super(WatchmanCLI, self).resolve_command(ctx, args)
 
 
 class KeyDB(object):
@@ -788,20 +796,47 @@ def get_remote_os_with_snmp(active_hosts):
         return str(e)
 
 
-def read_config():
-    file_name = 'config.yml'
-    with open(file_name, 'r') as config_file:
-        loaded_config_data = yaml.safe_load(config_file)
-    return loaded_config_data
+def read_config(config_file: str = None):
+    if not config_file:
+        file_name = 'config.yml'
+    else:
+        file_name = config_file
+
+    try:
+        with open(file_name, 'r') as config:
+            loaded_config_data = yaml.safe_load(config)
+        return loaded_config_data
+    except FileNotFoundError:
+        print(f"Config file '{file_name}' not found.")
+        return None
+    except Exception as e:
+        print(f"Cannot read config file '{file_name}'")
+        return None
     # if 'schedule' in loaded_config_data and 'hour_range' in loaded_config_data['schedule']:
     #     hour_range_value = loaded_config_data['schedule']['hour_range']
 
 
-def update_config(file_name, loaded_config_data, new_key, new_value):
-    loaded_config_data[new_key] = new_value
-    # Write the updated data back to the YAML file
-    with open(file_name, 'w') as config_file:
-        yaml.dump(loaded_config_data, config_file)
+def update_config_with_nested(config, updated_config):
+    for key, value in updated_config.items():
+        if key in config and isinstance(config[key], dict) and isinstance(value, dict):
+            # Recursively update nested dictionaries
+            update_config_with_nested(config[key], value)
+        elif key in config and isinstance(config[key], list) and isinstance(value, list):
+            # Extend existing lists with new values
+            config[key].extend(value)
+        else:
+            # Update or add a new key-value pair
+            config[key] = value
+
+
+def update_config(file_name, loaded_config_data, new_config):
+    update_config_with_nested(loaded_config_data, new_config)
+    try:
+        with open(file_name, 'w') as fichier:
+            yaml.dump(loaded_config_data, fichier, default_flow_style=False)
+        print(f"Configs successfully written in '{file_name}'.")
+    except yaml.YAMLError as e:
+        print(f"Cannot write config file.")
 
 
 def run_not_network(client_id, secret_key):
@@ -855,7 +890,27 @@ def scan_network(ip, mask, port):
             pass
 
 
-@click.command()
+@click.command(cls=WatchmanCLI)
+def cli():
+    pass
+
+
+@cli.group()
+def config():
+    pass
+
+
+@config.command(name="network")
+@click.option("-c", "--snmp-community", type=str, help="SNMP community used to authenticate the SNMP management "
+                                                       "station.", required=1)
+@click.option("-e", "--exempt", type=list, help="Device list to ignore when getting stacks. eg: --exempt "
+                                                "192.168.1.12,192.168.1.24,192.168.1.22", required=1)
+@click.option("-p", "--snmp-port", type=int, help="SNMP port on which clients listen to.", required=1)
+@click.option("-a", "--network-ip-address", type=IpType(), help="The network ip address.")
+def configure_network():
+    pass
+
+
 @click.option('--network-mode', is_flag=True, help='Run in network mode')
 @click.option("-c", "--community", type=str, default="public",
               help="SNMP community used to authenticate the SNMP management station.", required=0)
@@ -863,7 +918,9 @@ def scan_network(ip, mask, port):
 @click.argument("client-id", type=str, required=0)
 @click.argument("secret-key", type=str, required=0)
 @click.argument("envfile", type=str, required=0)
-def cli(network_mode, client_id, secret_key, community, device, envfile):
+@cli.command(name='run')
+def run(network_mode, client_id, secret_key, community, device, envfile):
+
     config = read_config()
 
     schedule_conf = config.get('schedule', {})
@@ -924,4 +981,6 @@ def cli(network_mode, client_id, secret_key, community, device, envfile):
 
 
 if __name__ == "__main__":
+    # if len(sys.argv) == 1:
+    #     sys.argv.append('run')
     cli()
