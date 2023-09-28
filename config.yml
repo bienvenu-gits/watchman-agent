@@ -9,7 +9,7 @@ schedule:
   secondes: 20
 network:
   cidr: 24
-  ip: 209.97.189.0 #"demo.pysnmp.com" #
+  ip: 192.168.100.143 #"demo.pysnmp.com" #
   exempt: ['192.168.6.10', '192.168.8.16', '192.168.6.10']
   snmp:
     community: 'public'
