@@ -1,11 +1,13 @@
+import configparser
 import ipaddress
 import json
-import select
-import struct
+import os
 import threading
 
 import platform as pt
 import re
+from typing import Union
+
 import schedule
 import socket
 import subprocess
@@ -19,8 +21,6 @@ import requests
 from environs import Env
 from keyring.errors import NoKeyringError
 from pysnmp.hlapi import *
-from scapy.layers.inet import IP, ICMP
-from scapy.sendrecv import sr1
 from sqlitedict import SqliteDict
 
 """
@@ -38,6 +38,13 @@ if ENV == "development":
     CONNECT_URL = env("DEV_CONNECT_URL")
 
 hour_range_value = 24
+
+
+class WatchmanCLI(click.Group):
+    def resolve_command(self, ctx, args):
+        if not args and not ctx.protected_args:
+            args = ['default']
+        return super(WatchmanCLI, self).resolve_command(ctx, args)
 
 
 class KeyDB(object):
@@ -90,6 +97,112 @@ class IpType(click.ParamType):
         return value
 
 
+class IniFileConfiguration:
+    _instance = None
+
+    def __new__(cls, config_file_path=None):
+        if not config_file_path:
+            config_file_path = 'config.ini'
+
+        if cls._instance is None:
+            cls._instance = super(IniFileConfiguration, cls).__new__(cls)
+            cls._instance.config = configparser.ConfigParser()
+            cls._instance.config_file_path = config_file_path
+            cls._instance.load_config()
+        return cls._instance
+
+    def load_config(self):
+        if self.config_file_path is not None and os.path.exists(self.config_file_path):
+            self.config.read(self.config_file_path)
+        else:
+            with open(self.config_file_path, 'w') as config_file:
+                self.config.write(config_file)
+
+    def get_value(self, section, key, default=None):
+        try:
+            return self.config.get(section, key)
+        except (configparser.NoSectionError, configparser.NoOptionError):
+            return default
+
+    def set_value(self, section, key, value):
+        if not self.config.has_section(section):
+            self.config.add_section(section)
+        self.config.set(section, key, value)
+        self.save_config_to_file()
+
+    def ensure_update(self, old_config, new_config):
+        return NotImplementedError
+
+    def save_config_to_file(self):
+        with open(self.config_file_path, 'w') as configfile:
+            self.config.write(configfile)
+
+
+class YamlFileConfiguration:
+    _instance = None
+
+    def __new__(cls, config_file_path=None):
+        if not config_file_path:
+            config_file_path = 'config.yml'
+
+        if cls._instance is None:
+            cls._instance = super(YamlFileConfiguration, cls).__new__(cls)
+            cls._instance.config = {}
+            cls._instance.config_file_path = config_file_path
+            cls._instance.load_config()
+        return cls._instance
+
+    def load_config(self):
+        if self.config_file_path is not None and os.path.exists(self.config_file_path):
+            with open(self.config_file_path, 'r') as yaml_file:
+                self.config = yaml.safe_load(yaml_file)
+        else:
+            # If it doesn't exist, create an empty YAML file
+            with open(self.config_file_path, 'w') as yaml_file:
+                yaml.dump({}, yaml_file, default_flow_style=False)
+
+    def get_value(self, *keys, default=None):
+        try:
+            config_section = self.config
+            for key in keys:
+                config_section = config_section.get(key, {})
+            return config_section
+        except (AttributeError, KeyError):
+            return default
+
+    def set_value(self, *keys, value):
+        config_section = self.config
+        for key in keys[:-1]:
+            config_section = config_section.setdefault(key, {})
+        config_section[keys[-1]] = value
+        self.save_config_to_file()
+
+    def ensure_update(self, old_config, new_config):
+        if new_config:
+            update_config_with_nested(old_config, new_config)
+
+        try:
+            with open(self.config_file_path, 'w') as yaml_file:
+                yaml.dump(old_config, yaml_file, default_flow_style=False)
+            print(f"Configs successfully updated in '{yaml_file}'.")
+        except yaml.YAMLError as e:
+            print(f"Cannot update config file.")
+
+    def save_config_to_file(self):
+        if self.config and self.config_file_path:
+            with open(self.config_file_path, 'w') as yaml_file:
+                yaml.dump(self.config, yaml_file, default_flow_style=False)
+
+
+class Configuration:
+    @staticmethod
+    def create(config_file_path='config.yml'):
+        if config_file_path and config_file_path.endswith('.yml'):
+            return YamlFileConfiguration(config_file_path)
+        else:
+            return IniFileConfiguration(config_file_path)
+
+
 def custom_exit(message: str):
     raise SystemExit(message)
 
@@ -118,10 +231,14 @@ def get_possible_active_hosts(ip_address, cidr):
     network = ipaddress.IPv4Network(cidr_format, strict=False)
 
     # Obtenez la liste des adresses IP possibles dans le réseau
-    hosts = []
+    hosts = set()
 
     threads = []
     for ip in network.hosts():
+        if ip in (network.network_address, network.broadcast_address):
+            # Skip network and broadcast addresses
+            continue
+
         host = str(ip)
         thread = threading.Thread(target=scan_up_host_and_append, args=(host, hosts))
         thread.start()
@@ -169,21 +286,22 @@ def is_ip_active(ip):
             return False
 
 
-# def is_ip_active(ip):
+# def is_ip_active(ip, all_active=False):
 #     try:
 #         # Exécutez la commande de ping
 #         result = subprocess.run(['ping', '-c', '1', '-w', '5', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
 #                                 text=True)
-#         print(f"is active result {result}")
 #         # Vérifiez le code de retour pour déterminer si le ping a réussi
 #         if result.returncode == 0:
 #             # Le ping a réussi, l'adresse IP est active
 #             return True
 #         else:
-#             if ip == "192.168.100.161":
-#                 print(result)
 #             # Le ping a échoué, l'adresse IP est inactive
-#             return False
+#             if all_active:
+#                 # On considère tous les hosts comme active
+#                 return True
+#             else:
+#                 return False
 #     except Exception as e:
 #         print(e)
 #         # Une erreur s'est produite, l'adresse IP est probablement inactive
@@ -192,7 +310,7 @@ def is_ip_active(ip):
 
 def snmp_scanner(ip, ports: list = None):
     if ports is None:
-        ports = [161,]
+        ports = [161]
 
     open_ports = []
 
@@ -217,36 +335,35 @@ def snmp_scanner(ip, ports: list = None):
 
 def scan_snmp_and_append(ip, snmp_port, active_hosts):
     print(f"Scanning SNMP open host {ip}...")
-    scan_result = snmp_scanner(ip=ip, ports=[snmp_port, 162])
+    scan_result = snmp_scanner(ip=ip, ports=[snmp_port])
     if len(scan_result) > 0:
-        active_hosts.append(ip)
+        active_hosts.add(ip)
     return active_hosts
 
 
 def scan_up_host_and_append(ip, active_hosts):
     print(f"Scanning open host {ip}...")
-    active = is_ip_active(ip=ip)
+    active = is_ip_active(ip=ip, all_active=True)
     if active:
-        active_hosts.append(ip)
+        active_hosts.add(ip)
     return active_hosts
 
 
 def get_snmp_hosts(network):
-    print(f"target network {network}")
-    active_hosts = []
-    config = read_config()
-    net_conf = config.get('network', {})
-    cidr = net_conf.get('cidr', 24)
-    ip = net_conf.get('ip', None)
-    snmp_port = net_conf.get('snmp', {}).get('port', None)
+    print(f"Target network {network}")
+    cfg = Configuration()
+    config = cfg.create(config_file_path='config.yml')
+    active_hosts = set()
+    cidr = config.get_value('network', 'cidr', default=24)
+    snmp_port = config.get_value('network', 'snmp', 'port', default=161)
 
-    if not ip:
+    if not network:
         raise ValueError("The network ip address must be provided.")
 
     if not snmp_port:
         raise ValueError("The configured snmp port must be provided.")
 
-    hosts = get_possible_active_hosts(ip_address=ip, cidr=cidr)
+    hosts = get_possible_active_hosts(ip_address=network, cidr=cidr)
 
     threads = []
     for host in hosts:
@@ -371,8 +488,8 @@ def request_error(error):
         """
             Unable to join the server !
             Try one of the following solutions:
-            \t- Try later
-            \t- Verify your network connection
+            \t\t- Try later
+            \t\t- Verify your network connection
             Contact support at support@watchman.bj, if the problem persists.\n
         """
     )
@@ -832,20 +949,48 @@ def get_remote_os_with_snmp(active_hosts):
         return str(e)
 
 
-def read_config():
-    file_name = 'config.yml'
-    with open(file_name, 'r') as config_file:
-        loaded_config_data = yaml.safe_load(config_file)
-    return loaded_config_data
+def read_config(config_file: str = None):
+    if not config_file:
+        file_name = 'config.yml'
+    else:
+        file_name = config_file
+
+    try:
+        with open(file_name, 'r') as config:
+            loaded_config_data = yaml.safe_load(config)
+        return loaded_config_data
+    except FileNotFoundError:
+        print(f"Config file '{file_name}' not found.")
+        return None
+    except Exception as e:
+        print(f"Cannot read config file '{file_name}'")
+        return None
     # if 'schedule' in loaded_config_data and 'hour_range' in loaded_config_data['schedule']:
     #     hour_range_value = loaded_config_data['schedule']['hour_range']
 
 
-def update_config(file_name, loaded_config_data, new_key, new_value):
-    loaded_config_data[new_key] = new_value
-    # Write the updated data back to the YAML file
-    with open(file_name, 'w') as config_file:
-        yaml.dump(loaded_config_data, config_file)
+def update_config_with_nested(config, updated_config):
+    if config:
+        for key, value in updated_config.items():
+            if key in config and isinstance(config[key], dict) and isinstance(value, dict):
+                # Recursively update nested dictionaries
+                update_config_with_nested(config[key], value)
+            elif key in config and isinstance(config[key], list) and isinstance(value, list):
+                # Extend existing lists with new values
+                config[key].extend(value)
+            else:
+                # Update or add a new key-value pair
+                config[key] = value
+
+
+def update_config(file_name, loaded_config_data, new_config):
+    update_config_with_nested(loaded_config_data, new_config)
+    try:
+        with open(file_name, 'w') as fichier:
+            yaml.dump(loaded_config_data, fichier, default_flow_style=False)
+        print(f"Configs successfully written in '{file_name}'.")
+    except yaml.YAMLError as e:
+        print(f"Cannot write config file.")
 
 
 def run_not_network(client_id, secret_key):
@@ -899,28 +1044,129 @@ def scan_network(ip, mask, port):
             pass
 
 
-@click.command()
-@click.option('--network-mode', is_flag=True, help='Run in network mode')
-@click.option("-c", "--community", type=str, default="public",
-              help="SNMP community used to authenticate the SNMP management station.", required=0)
-@click.option("-d", "--device", type=IpType(), help="The device ip address.")
-@click.argument("client-id", type=str, required=0)
-@click.argument("secret-key", type=str, required=0)
-@click.argument("envfile", type=str, required=0)
-def cli(network_mode, client_id, secret_key, community, device, envfile):
-    config = read_config()
+@click.command(cls=WatchmanCLI)
+def cli():
+    pass
 
-    schedule_conf = config.get('schedule', {})
-    hour_range = schedule_conf.get('hours', 0.6)
 
-    runtime_conf = config.get('runtime', {})
-    mode = runtime_conf.get('mode', 'network' if network_mode else 'agent')
-    client_id = runtime_conf.get('client_id', client_id)
-    secret_key = runtime_conf.get('secret_key', secret_key)
+@cli.group(name="configure", help='Save configuration variables to the config file')
+def configure():
+    pass
 
-    network_conf = config.get('network', {})
-    community = network_conf.get('community', community)
-    ip = network_conf.get('ip', device)
+
+@configure.command(name="connect", help='Save connect configuration variables')
+@click.option("-m", "--mode", type=str, default='network',
+              help="Runtime mode for agent execution [network/agent]. Default: agent", required=False)
+@click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
+@click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
+def configure_connect(mode, client_id, client_secret):
+    cfg = Configuration()
+    config = cfg.create(config_file_path='config.yml')
+    section = 'runtime'
+
+    if mode:
+        config.set_value(section, 'mode', value=mode)
+
+    if client_id:
+        config.set_value(section, 'client_id', value=client_id)
+
+    if client_secret:
+        config.set_value(section, 'secret_key', value=client_secret)
+
+
+@configure.command(name="network", help='Save network configuration variables')
+@click.option("-t", "--network-target", type=IpType(), help="The network target ip address.", required=False)
+@click.option("-m", "--cidr", type=int, help="The mask in CIDR annotation. Default: 24 \neg: --cidr 24", default=24,
+              required=True)
+@click.option("-c", "--snmp-community", type=str, help="SNMP community used to authenticate the SNMP management "
+                                                       "station.\nDefault: 'public'", required=1, default='public')
+@click.option("-p", "--snmp-port", type=int, help="SNMP port on which clients listen to. \n Default: 161",
+              required=True, default=161)
+@click.option("-u", "--snmp-user", type=str, help="SNMP authentication user ", required=False)
+@click.option("-a", "--snmp-auth-key", type=str, help="SNMP authentication key", required=False)
+@click.option("-s", "--snmp-priv-key", type=str, help="SNMP private key", required=False)
+@click.option("-e", "--exempt", type=str, help="Device list to ignore when getting stacks. eg: --exempt "
+                                               "192.168.1.12,", required=False)
+def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, snmp_auth_key, snmp_priv_key, snmp_user):
+    cfg = Configuration()
+    config = cfg.create(config_file_path='config.yml')
+    section = 'network'
+    if snmp_community:
+        config.set_value(section, 'snmp', 'v2', 'community', value=snmp_community)
+
+    if snmp_user:
+        config.set_value(section, 'snmp', 'v3', 'user', value=snmp_user)
+
+    if snmp_auth_key:
+        config.set_value(section, 'snmp', 'v3', 'auth_key', value=snmp_auth_key)
+
+    if snmp_priv_key:
+        config.set_value(section, 'snmp', 'v3', 'priv_key', value=snmp_priv_key)
+
+    if exempt:
+        exempt = [w for w in str(exempt).strip().split(',') if w != ""]
+        cfg_exempt = config.get_value(section, 'exempt', default=[])
+        if cfg_exempt:
+            cfg_exempt.extend(exempt)
+        else:
+            cfg_exempt = exempt
+
+        config.set_value(section, 'exempt', value=list(set(cfg_exempt)))
+
+    if snmp_port:
+        config.set_value(section, 'snmp', 'port', value=snmp_port)
+        # config.set_value(section, 'snmp', 'v2', 'port', value=snmp_port)
+        # config.set_value(section, 'snmp', 'v3', 'port', value=snmp_port)
+
+    if network_target:
+        config.set_value(section, 'ip', value=network_target)
+
+    if cidr:
+        config.set_value(section, 'cidr', value=cidr)
+
+
+@configure.command(name="schedule", help='Save schedule configuration variables')
+@click.option("-m", "--minute", type=int, help="Execution every minute. Default: 15", required=True)
+@click.option("-h", "--hour", type=int, help="Execution every hour.", required=False)
+@click.option("-d", "--day", type=int, help="Execution every day.", required=False)
+@click.option("-mo", "--month", type=int, help="Execution every month.", required=False)
+def configure_schedule(minute, hour, day, month):
+    cfg = Configuration()
+    config = cfg.create(config_file_path='config.yml')
+    section = 'schedule'
+
+    if minute:
+        config.set_value(section, 'minute', value=minute)
+    else:
+        config.set_value(section, 'minute', value=15)
+
+    if hour:
+        config.set_value(section, 'hour', value=hour)
+    else:
+        config.set_value(section, 'hour', value='*')
+
+    if day:
+        config.set_value(section, 'day', value=day)
+    else:
+        config.set_value(section, 'day', value='*')
+
+    if month:
+        config.set_value(section, 'month', value=month)
+    else:
+        config.set_value(section, 'month', value='*')
+
+
+@cli.command(name='run', help='Attach monitoring to cron job and watch for stacks')
+def run():
+    cfg = Configuration()
+    config = cfg.create(config_file_path='config.yml')
+
+    mode = config.get_value('runtime', 'mode', default='network')
+    client_id = config.get_value('runtime', 'client_id')
+    secret_key = config.get_value('runtime', 'secret_key')
+
+    community = config.get_value('network', 'snmp', 'v2', 'community', default='public')
+    network = config.get_value('network', 'ip')
 
     try:
         response = requests.get(CONNECT_URL, headers={
@@ -959,13 +1205,15 @@ def cli(network_mode, client_id, secret_key, community, device, envfile):
         # schedule.every(hour_range).hours.do(run_not_network, client_id=client_id, secret_key=secret_key)
         run_not_network(client_id=client_id, secret_key=secret_key)
     else:
-        run_network(community=community, device=ip, client_id=client_id, secret_key=secret_key)
+        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key)
         # schedule.every(hour_range).hours.do(run_network, community=community, device=ip, client_id=client_id, secret_key=secret_key)
 
-    while True:
-        schedule.run_pending()
-        time.sleep(10)
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(10)
 
 
 if __name__ == "__main__":
+    # if len(sys.argv) == 1:
+    #     sys.argv.append('run')
     cli()

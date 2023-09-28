@@ -1,19 +1,25 @@
-runtime:
-  mode: 'network' #'agent' #
-  client_id: "g6wW5YVrD6J3IwvY6DB4jEyq7iGQkVHJhwyDYHc0"
-  secret_key: "VGwDqOAT6CgtoPQL1WUCcsyBZiMHbXEHaXGQS1EQbyzOnbWTanTC6QVNrM4m"
-schedule:
-  hours: 12
-  days: 1
-  minutes: 30
-  secondes: 20
 network:
   cidr: 24
-  ip: 192.168.100.143 #"demo.pysnmp.com" #
-  exempt: ['192.168.6.10', '192.168.8.16', '192.168.6.10']
+  exempt:
+  - 192.168.1.12
+  - 192.168.6.10
+  - 192.168.8.24
+  - 192.168.8.16
+  ip: 192.168.100.0
   snmp:
-    community: 'public'
     port: 161
-    user: 'usr-sha-aes128'
-    auth_key: 'authkey1'
-    priv_key: 'privkey1'
+    v2:
+      community: public
+    v3:
+      auth_key: authkey1
+      priv_key: privkey1
+      user: usr-sha-aes128
+runtime:
+  client_id: g6wW5YVrD6J3IwvY6DB4jEyq7iGQkVHJhwyDYHc0
+  mode: network
+  secret_key: VGwDqOAT6CgtoPQL1WUCcsyBZiMHbXEHaXGQS1EQbyzOnbWTanTC6QVNrM4m
+schedule:
+  day: '*'
+  hour: '*'
+  minute: 30
+  month: 12

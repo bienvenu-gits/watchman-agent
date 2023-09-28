@@ -22,5 +22,7 @@ local/
 
 !.gitignore
 !.travis.yml
-
+Vagrantfile.back
+Vagrantfile
+config.yml
 venv
