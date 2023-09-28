@@ -875,9 +875,9 @@ def run_network(community, device, client_id, secret_key):
     else:
         print(f"RUN NETWORK")
         # target_host = get_public_ip(device)
-        # hosts = get_snmp_hosts(device)
+        hosts = get_snmp_hosts(device)
         # print(f"hosts {hosts}")
-        hosts = ["209.97.189.19"]
+        # hosts = ["209.97.189.19"]
         report = getting_stacks_by_host_snmp(hosts, community)
 
         with open("___", "w+") as file:
