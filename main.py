@@ -231,7 +231,7 @@ def get_possible_active_hosts(ip_address, cidr):
     network = ipaddress.IPv4Network(cidr_format, strict=False)
 
     # Obtenez la liste des adresses IP possibles dans le réseau
-    hosts = []
+    hosts = set()
 
     threads = []
     for ip in network.hosts():
@@ -286,21 +286,22 @@ def is_valid_ip(ip):
             return False
 
 
-def is_ip_active(ip):
+def is_ip_active(ip, all_active=False):
     try:
         # Exécutez la commande de ping
         result = subprocess.run(['ping', '-c', '1', '-w', '5', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 text=True)
-        print(f"is active result {result}")
         # Vérifiez le code de retour pour déterminer si le ping a réussi
         if result.returncode == 0:
             # Le ping a réussi, l'adresse IP est active
             return True
         else:
-            if ip == "192.168.100.161":
-                print(result)
             # Le ping a échoué, l'adresse IP est inactive
-            return False
+            if all_active:
+                # On considère tous les hosts comme active
+                return True
+            else:
+                return False
     except Exception as e:
         print(e)
         # Une erreur s'est produite, l'adresse IP est probablement inactive
@@ -309,7 +310,7 @@ def is_ip_active(ip):
 
 def snmp_scanner(ip, ports: list = None):
     if ports is None:
-        ports = [161, 162]
+        ports = [161]
 
     open_ports = []
 
@@ -334,25 +335,25 @@ def snmp_scanner(ip, ports: list = None):
 
 def scan_snmp_and_append(ip, snmp_port, active_hosts):
     print(f"Scanning SNMP open host {ip}...")
-    scan_result = snmp_scanner(ip=ip, ports=[snmp_port, 162])
+    scan_result = snmp_scanner(ip=ip, ports=[snmp_port])
     if len(scan_result) > 0:
-        active_hosts.append(ip)
+        active_hosts.add(ip)
     return active_hosts
 
 
 def scan_up_host_and_append(ip, active_hosts):
     print(f"Scanning open host {ip}...")
-    active = is_ip_active(ip=ip)
+    active = is_ip_active(ip=ip, all_active=True)
     if active:
-        active_hosts.append(ip)
+        active_hosts.add(ip)
     return active_hosts
 
 
 def get_snmp_hosts(network):
-    print(f"target network {network}")
+    print(f"Target network {network}")
     cfg = Configuration()
     config = cfg.create(config_file_path='config.yml')
-    active_hosts = []
+    active_hosts = set()
     cidr = config.get_value('network', 'cidr', default=24)
     snmp_port = config.get_value('network', 'snmp', 'port', default=161)
 
