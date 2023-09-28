@@ -272,7 +272,8 @@ def is_valid_ip(ip):
     except ipaddress.AddressValueError:
         return False
 
-def is_ip_active(ip):
+
+def is_ip_active(ip, all_active=False):
     try:
         # Attempt to create a socket connection to the IP address and port 0
         socket.inet_pton(socket.AF_INET, ip)
@@ -341,18 +342,14 @@ def scan_snmp_and_append(ip, snmp_port, active_hosts):
     return active_hosts
 
 
-def snmp_query_v2(var_bind, hostname, port, community="public"):
+def snmp_query_v2(var_bind, hostname, community="public"):
     snmp_engine = SnmpEngine()
     iterator = getCmd(
         snmp_engine,
         CommunityData(community),
-        UdpTransportTarget((hostname, port)),
+        UdpTransportTarget(hostname),
         ContextData(),
-        ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0)),
-        ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysName', 0)),
-        # ObjectType(ObjectIdentity('iso.org.dod.internet.mgmt.mib-2.host.hrSWInstalled.hrSWInstalledTable'
-        #                           '.hrSWInstalledEntry.hrSWInstalledName.0'))
-        ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
+        var_bind
     )
 
     errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
@@ -363,13 +360,31 @@ def snmp_query_v2(var_bind, hostname, port, community="public"):
     elif errorStatus:
         pass
     else:
-        for varBind in varBinds:
-            print(' = '.join([x.prettyPrint() for x in varBind]))
+        return varBinds
+    return None
 
 
-def snmp_query_v3(mib, hostname, port, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
-                  priv_protocol=usmDESPrivProtocol):
-    pass
+def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
+                  priv_protocol=usmAesCfb128Protocol):
+    snmp_engine = SnmpEngine()
+
+    iterator = getCmd(
+        snmp_engine,
+        UsmUserData(username, auth_key, priv_key, auth_protocol, priv_protocol),
+        UdpTransportTarget(hostname),
+        ContextData(),
+        var_bind
+    )
+
+    errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
+
+    if errorIndication:
+        print(f"Error: {errorIndication}")
+    elif errorStatus:
+        print(f"Error: {errorStatus.prettyPrint()} at {errorIndex and varBinds[int(errorIndex) - 1][0] or '?'}")
+    else:
+        return varBinds
+    return None
 
 
 def scan_up_host_and_append(ip, active_hosts):
@@ -469,7 +484,7 @@ def getting_stacks_by_host_snmp(active_hosts, community):
 
         if len(os_info) >= 50:
             os_info = os_info.split("#")[0]
-        
+
         try:
             # Run the snmpwalk command using getstatusoutput
             status, output = command_output
@@ -503,7 +518,7 @@ def getting_stacks_by_host_snmp(active_hosts, community):
             "ipv4": host,
             "packages": stacks
         }
-        
+
     print(f"out hosts_report {hosts_report}")
     return json.dumps(hosts_report)
 
@@ -788,7 +803,7 @@ def format_json_report(client_id, client_secret, file):
 
     with open(file, "r+") as file_in_read_mode:
         file_content = file_in_read_mode.read()
-    
+
     file_content = re.sub('\'', '"', file_content)
 
     with open(file, "w+") as file_in_write_mode:

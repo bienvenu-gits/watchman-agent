@@ -7,30 +7,29 @@ def get_one_sync(hostname, bind=None, community='public'):
     snmp_engine = SnmpEngine()
     iterator = getCmd(
         snmp_engine,
-        CommunityData(community),
+        UsmUserData('usr-sha-aes128', 'authKey1', 'privKey1', usmHMACSHAAuthProtocol, usmAesCfb128Protocol),
         UdpTransportTarget(hostname),
         ContextData(),
         ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0)),
         ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysName', 0)),
-        # ObjectType(ObjectIdentity('iso.org.dod.internet.mgmt.mib-2.host.hrSWInstalled.hrSWInstalledTable'
-        #                           '.hrSWInstalledEntry.hrSWInstalledName.0'))
         ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
     )
 
     errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
 
     if errorIndication:
+        print(errorIndication)
         pass
 
     elif errorStatus:
-        pass
+        print(errorStatus)
     else:
         for varBind in varBinds:
             print(' = '.join([x.prettyPrint() for x in varBind]))
 
 
 async def main():
-    hostnames = [('demo.pysnmp.com', 161)]
+    hostnames = [('demo.pysnmp.com', 161), ('209.97.189.19', 161)]
     loop = asyncio.get_event_loop()
 
     # Use a ThreadPoolExecutor to run the synchronous function in a separate thread
@@ -43,3 +42,20 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    import re
+
+    package_string = "2018.09.18.1~18.04.2"
+
+    # Define the regular expression pattern to match the version format
+    pattern = r'\d+(\.\d+)*'
+
+    # Use re.search to find the version in the string
+    match = re.search(pattern, package_string)
+
+    if match:
+        version = match.group()
+        print(f"Version: {version}")
+    else:
+        print("No version found in the string")
+
+
