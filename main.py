@@ -341,6 +341,37 @@ def scan_snmp_and_append(ip, snmp_port, active_hosts):
     return active_hosts
 
 
+def snmp_query_v2(var_bind, hostname, port, community="public"):
+    snmp_engine = SnmpEngine()
+    iterator = getCmd(
+        snmp_engine,
+        CommunityData(community),
+        UdpTransportTarget((hostname, port)),
+        ContextData(),
+        ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0)),
+        ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysName', 0)),
+        # ObjectType(ObjectIdentity('iso.org.dod.internet.mgmt.mib-2.host.hrSWInstalled.hrSWInstalledTable'
+        #                           '.hrSWInstalledEntry.hrSWInstalledName.0'))
+        ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
+    )
+
+    errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
+
+    if errorIndication:
+        pass
+
+    elif errorStatus:
+        pass
+    else:
+        for varBind in varBinds:
+            print(' = '.join([x.prettyPrint() for x in varBind]))
+
+
+def snmp_query_v3(mib, hostname, port, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
+                  priv_protocol=usmDESPrivProtocol):
+    pass
+
+
 def scan_up_host_and_append(ip, active_hosts):
     print(f"Scanning open host {ip}...")
     active = is_ip_active(ip=ip, all_active=True)
