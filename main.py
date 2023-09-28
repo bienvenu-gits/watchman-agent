@@ -264,15 +264,15 @@ def get_network_ip_address(ip, cidr):
     return str(ip_address)
 
 
-# def is_valid_ip(ip):
-#     try:
-#         # Tentez de créer un objet IP à partir de la chaîne donnée
-#         ip = ipaddress.IPv4Address(ip)
-#         return True
-#     except ipaddress.AddressValueError:
-#         return False
-
 def is_valid_ip(ip):
+    try:
+        # Tentez de créer un objet IP à partir de la chaîne donnée
+        ip = ipaddress.IPv4Address(ip)
+        return True
+    except ipaddress.AddressValueError:
+        return False
+
+def is_ip_active(ip):
     try:
         # Attempt to create a socket connection to the IP address and port 0
         socket.inet_pton(socket.AF_INET, ip)
@@ -286,26 +286,26 @@ def is_valid_ip(ip):
             return False
 
 
-def is_ip_active(ip, all_active=False):
-    try:
-        # Exécutez la commande de ping
-        result = subprocess.run(['ping', '-c', '1', '-w', '5', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True)
-        # Vérifiez le code de retour pour déterminer si le ping a réussi
-        if result.returncode == 0:
-            # Le ping a réussi, l'adresse IP est active
-            return True
-        else:
-            # Le ping a échoué, l'adresse IP est inactive
-            if all_active:
-                # On considère tous les hosts comme active
-                return True
-            else:
-                return False
-    except Exception as e:
-        print(e)
-        # Une erreur s'est produite, l'adresse IP est probablement inactive
-        return False
+# def is_ip_active(ip, all_active=False):
+#     try:
+#         # Exécutez la commande de ping
+#         result = subprocess.run(['ping', '-c', '1', '-w', '5', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+#                                 text=True)
+#         # Vérifiez le code de retour pour déterminer si le ping a réussi
+#         if result.returncode == 0:
+#             # Le ping a réussi, l'adresse IP est active
+#             return True
+#         else:
+#             # Le ping a échoué, l'adresse IP est inactive
+#             if all_active:
+#                 # On considère tous les hosts comme active
+#                 return True
+#             else:
+#                 return False
+#     except Exception as e:
+#         print(e)
+#         # Une erreur s'est produite, l'adresse IP est probablement inactive
+#         return False
 
 
 def snmp_scanner(ip, ports: list = None):
@@ -414,20 +414,27 @@ def get_snmp_hosts(network):
 
 
 def getting_stacks_by_host_snmp(active_hosts, community):
-    hosts_report = []
+    print(f"getting_stacks_by_host_snmp {active_hosts}")
+    hosts_report = {}
     for host in active_hosts:
+        print(f"host {host}")
         stacks = []
         command_output = subprocess.getstatusoutput("snmpwalk -v2c -c %s %s 1.3.6.1.2.1.25.6.3.1.2" % (community, host))
+        print(f"command_output {command_output}")
         if command_output[0] == 0:
             mibs = command_output[1].split('\n')
+            print(f"mibs {mibs}")
             for mib in mibs:
+                print(f"mib {mib}")
                 try:
+                    print(f"firstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirst")
                     stack = mib.split('"')[1]
                     versions_info = stack.split("-")[-2:]
                     stack_names = stack.split("-")[:-2]
                 except:
                     pass
                 try:
+                    print(f"secondsecondsecondsecondsecondsecondsecondsecondsecondsecondsecond")
                     if versions_info[0][0].isdigit():
                         stacks.append({
                             "name": "-".join(stack_names),
@@ -462,14 +469,43 @@ def getting_stacks_by_host_snmp(active_hosts, community):
 
         if len(os_info) >= 50:
             os_info = os_info.split("#")[0]
+        
+        try:
+            # Run the snmpwalk command using getstatusoutput
+            status, output = command_output
 
-        hosts_report.append({
+            # Check if the command was successful
+            if status == 0:
+                # Parse the SNMP output to extract hostname and OS information
+                lines = output.strip().split("\n")
+                if len(lines) == 1:
+                    # Assuming the first line contains the SNMP response
+                    snmp_response = lines[0].split(" = ")[1]
+                    print(f"snmp_response {snmp_response}")
+                    # Split the SNMP response by spaces to extract hostname and OS
+                    parts = snmp_response.split(" ")
+                    print(f"parts {parts}")
+                    if len(parts) >= 2:
+                        hostname = parts[2]
+                        os_info = parts[1]
+                        print("Hostname:", hostname)
+                        print("Operating System:", os_info)
+                    else:
+                        print("Hostname and OS information not found in SNMP response.")
+                else:
+                    print("Error: Unable to retrieve SNMP information.")
+            else:
+                print(f"Error executing snmpwalk. Status code: {status}")
+        except Exception as e:
+            print("Error:", e)
+        hosts_report[hostname] = {
             "os": os_info,
             "ipv4": host,
             "packages": stacks
-        })
-
-    return hosts_report
+        }
+        
+    print(f"out hosts_report {hosts_report}")
+    return json.dumps(hosts_report)
 
 
 """
@@ -611,7 +647,7 @@ def get_host_os():
 def format_pkg_version(command1_output, host_os):
     if "ubuntu" in host_os or "debian" in host_os:
         output = subprocess.check_output(
-            ["awk", "$1 == 'ii' {print $2, $3}", "OFS=^^"], stdin=command1_output.stdout)
+            ["awk", "{print $2, $3}", "OFS=^^"], stdin=command1_output.stdout)
     elif "alpine" in host_os:
         output = subprocess.check_output(
             ["awk", "{print $1}"], stdin=command1_output.stdout)
@@ -752,13 +788,14 @@ def format_json_report(client_id, client_secret, file):
 
     with open(file, "r+") as file_in_read_mode:
         file_content = file_in_read_mode.read()
-
+    
     file_content = re.sub('\'', '"', file_content)
 
     with open(file, "w+") as file_in_write_mode:
         file_in_write_mode.write("")
 
     try:
+        print(f"file_content {file_content}")
         response = requests.post(
             url=WEBHOOK_URL,
             headers={
@@ -769,11 +806,11 @@ def format_json_report(client_id, client_secret, file):
                 "data": file_content
             }
         )
-
         if response.status_code != 200:
             click.echo("\nExecution error️")
             click.echo("Message: ", response.json()["detail"])
     except requests.exceptions.RequestException as e:
+        print(f"error on request {e}")
         request_error(error=e)
 
 
@@ -1015,9 +1052,9 @@ def run_network(community, device, client_id, secret_key):
         print(f"RUN NETWORK")
         # target_host = get_public_ip(device)
         hosts = get_snmp_hosts(device)
-        print(f"Active hosts {hosts}")
+        # print(f"hosts {hosts}")
+        # hosts = ["209.97.189.19"]
         report = getting_stacks_by_host_snmp(hosts, community)
-        # report = get_remote_os_with_snmp(['demo.pysnmp.com'])
 
         with open("___", "w+") as file:
             file.write("%s" % report)
