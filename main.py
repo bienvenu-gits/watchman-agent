@@ -22,7 +22,7 @@ from environs import Env
 from keyring.errors import NoKeyringError
 from pysnmp.hlapi import *
 from sqlitedict import SqliteDict
-
+from pysnmp.entity.rfc3413.oneliner import cmdgen
 """
     Fetch Variables environment
 """
@@ -350,27 +350,59 @@ def scan_snmp_and_append(ip, snmp_port, active_hosts):
         active_hosts.add(ip)
     return active_hosts
 
+def reformat_version(version):
+    newformat = version
+    # Define a regex pattern to match the version (digits and dots)
+    pattern = r'(\d+(\.\d+)*)'
+
+    # Use re.search to find the first match in the input string
+    match = re.search(pattern, version)
+
+    # Check if a match was found
+    if match:
+        newformat = match.group(1)  # Extract the matched version
+        print("Version:", version)
+    else:
+        print("No version found in the input string.")
+    return newformat
+
 
 def snmp_query_v2(var_bind, hostname, community="public"):
-    snmp_engine = SnmpEngine()
-    iterator = getCmd(
-        snmp_engine,
-        CommunityData(community),
-        UdpTransportTarget(hostname),
-        ContextData(),
+    print(f"snmp_query_v2 var_bind {var_bind}")
+    stacks = []
+    # Create an SNMP command generator
+    cmd_gen = cmdgen.CommandGenerator()
+
+    # Perform the SNMP walk
+    error_indication, error_status, error_index, var_bind_table = cmd_gen.nextCmd(
+        cmdgen.CommunityData(community),
+        cmdgen.UdpTransportTarget((hostname, 161)),
         var_bind
     )
 
-    errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
-
-    if errorIndication:
-        pass
-
-    elif errorStatus:
-        pass
+    # Check for errors
+    if error_indication:
+        print(f"SNMP Walk failed: {error_indication}")
     else:
-        return varBinds
-    return None
+        for var_bind_table_row in var_bind_table:
+            for name, val in var_bind_table_row:
+                print(f"*** {val.prettyPrint()}")
+                if var_bind == (1, 3, 6, 1, 2, 1, 25, 6, 3, 1, 2):
+                    name_version = val.prettyPrint()
+                    item = name_version.split("_")
+                    # version = item[1]
+                    version = reformat_version(item[1])
+                    item_version = {
+                        "name": item[0],
+                        "version": version
+                    }
+                    stacks.append(item_version)
+                    return stacks
+                else:
+                    print("+++++++++++++++++++++++++++")
+                    print(f"{name.prettyPrint()}: {val.prettyPrint()}")
+                    return None
+    
 
 
 def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
@@ -440,92 +472,98 @@ def get_snmp_hosts(network):
 def getting_stacks_by_host_snmp(active_hosts, community):
     print(f"getting_stacks_by_host_snmp {active_hosts}")
     hosts_report = {}
+    hostname = None
     for host in active_hosts:
         print(f"host {host}")
         stacks = []
-        command_output = subprocess.getstatusoutput("snmpwalk -v2c -c %s %s 1.3.6.1.2.1.25.6.3.1.2" % (community, host))
-        print(f"command_output {command_output}")
-        if command_output[0] == 0:
-            mibs = command_output[1].split('\n')
-            print(f"mibs {mibs}")
-            for mib in mibs:
-                print(f"mib {mib}")
-                try:
-                    print(f"firstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirst")
-                    stack = mib.split('"')[1]
-                    versions_info = stack.split("-")[-2:]
-                    stack_names = stack.split("-")[:-2]
-                except:
-                    pass
-                try:
-                    print(f"secondsecondsecondsecondsecondsecondsecondsecondsecondsecondsecond")
-                    if versions_info[0][0].isdigit():
-                        stacks.append({
-                            "name": "-".join(stack_names),
-                            "version": "-".join(versions_info)
-                        })
-                    elif versions_info[1][0].isdigit():
-                        stacks.append({
-                            "name": "-".join(stack_names, versions_info[0]),
-                            "version": versions_info[1]
-                        })
-                    else:
-                        stacks.append({
-                            "name": stack,
-                            "version": stack
-                        })
+        # command_output = subprocess.getstatusoutput("snmpwalk -v2c -c %s %s 1.3.6.1.2.1.25.6.3.1.2" % (community, host))
+        # var_bind = (1, 3, 6, 1, 2, 1, 25, 6, 3, 1, 2)
+        # snmp_query = snmp_query_v2(var_bind, host, community)
+        # print(f"snmp_query {snmp_query}")
+        # print(f"command_output {command_output}")
+        # if command_output[0] == 0:
+        #     mibs = command_output[1].split('\n')
+        #     # print(f"mibs {mibs}")
+        #     for mib in mibs:
+        #         # print(f"mib {mib}")
+        #         try:
+        #             # print(f"firstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirst")
+        #             stack = mib.split('"')[1]
+        #             versions_info = stack.split("-")[-2:]
+        #             stack_names = stack.split("-")[:-2]
+        #         except:
+        #             pass
+        #         try:
+        #             # print(f"secondsecondsecondsecondsecondsecondsecondsecondsecondsecondsecond")
+        #             if versions_info[0][0].isdigit():
+        #                 stacks.append({
+        #                     "name": "-".join(stack_names),
+        #                     "version": "-".join(versions_info)
+        #                 })
+        #             elif versions_info[1][0].isdigit():
+        #                 stacks.append({
+        #                     "name": "-".join(stack_names, versions_info[0]),
+        #                     "version": versions_info[1]
+        #                 })
+        #             else:
+        #                 stacks.append({
+        #                     "name": stack,
+        #                     "version": stack
+        #                 })
 
-                except Exception as e:
-                    print(f"Exception in getting stacks snmp: {e}")
-                    pass
+        #         except Exception as e:
+        #             print(f"Exception in getting stacks snmp: {e}")
+        #             pass
 
-        command_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" % (community, host))
+        # command_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" % (community, host))
+        oid = (1, 3, 6, 1, 2, 1, 1, 1, 0)
+        os_info = snmp_query_v2(oid, host, community)
+        print(f"os_info {os_info}")
+        # try:
+        #     os_info = re.search('"(.*)"', command_output[1])
+        #     if os_info is not None:
+        #         os_info = os_info.group(1)
+        #     else:
+        #         os_info = command_output[1].split("#")[0]
 
-        try:
-            os_info = re.search('"(.*)"', command_output[1])
-            if os_info is not None:
-                os_info = os_info.group(1)
-            else:
-                os_info = command_output[1].split("#")[0]
+        # except:
+        #     os_info = command_output[1].split("#")[0]
 
-        except:
-            os_info = command_output[1].split("#")[0]
+        # if len(os_info) >= 50:
+        #     os_info = os_info.split("#")[0]
 
-        if len(os_info) >= 50:
-            os_info = os_info.split("#")[0]
+        # try:
+        #     # Run the snmpwalk command using getstatusoutput
+        #     status, output = command_output
 
-        try:
-            # Run the snmpwalk command using getstatusoutput
-            status, output = command_output
-
-            # Check if the command was successful
-            if status == 0:
-                # Parse the SNMP output to extract hostname and OS information
-                lines = output.strip().split("\n")
-                if len(lines) == 1:
-                    # Assuming the first line contains the SNMP response
-                    snmp_response = lines[0].split(" = ")[1]
-                    print(f"snmp_response {snmp_response}")
-                    # Split the SNMP response by spaces to extract hostname and OS
-                    parts = snmp_response.split(" ")
-                    print(f"parts {parts}")
-                    if len(parts) >= 2:
-                        hostname = parts[2]
-                        os_info = parts[1]
-                        print("Hostname:", hostname)
-                        print("Operating System:", os_info)
-                    else:
-                        print("Hostname and OS information not found in SNMP response.")
-                else:
-                    print("Error: Unable to retrieve SNMP information.")
-            else:
-                print(f"Error executing snmpwalk. Status code: {status}")
-        except Exception as e:
-            print("Error:", e)
+        #     # Check if the command was successful
+        #     if status == 0:
+        #         # Parse the SNMP output to extract hostname and OS information
+        #         lines = output.strip().split("\n")
+        #         if len(lines) == 1:
+        #             # Assuming the first line contains the SNMP response
+        #             snmp_response = lines[0].split(" = ")[1]
+        #             print(f"snmp_response {snmp_response}")
+        #             # Split the SNMP response by spaces to extract hostname and OS
+        #             parts = snmp_response.split(" ")
+        #             print(f"parts {parts}")
+        #             if len(parts) >= 2:
+        #                 hostname = parts[2]
+        #                 os_info = parts[1]
+        #                 print("Hostname:", hostname)
+        #                 print("Operating System:", os_info)
+        #             else:
+        #                 print("Hostname and OS information not found in SNMP response.")
+        #         else:
+        #             print("Error: Unable to retrieve SNMP information.")
+        #     else:
+        #         print(f"Error executing snmpwalk. Status code: {status}")
+        # except Exception as e:
+        #     print("Error:", e)
         hosts_report[hostname] = {
             "os": os_info,
             "ipv4": host,
-            "packages": stacks
+            # "packages": snmp_query
         }
 
     print(f"out hosts_report {hosts_report}")
@@ -1075,9 +1113,9 @@ def run_network(community, device, client_id, secret_key):
     else:
         print(f"RUN NETWORK")
         # target_host = get_public_ip(device)
-        hosts = get_snmp_hosts(device)
+        # hosts = get_snmp_hosts(device)
         # print(f"hosts {hosts}")
-        # hosts = ["209.97.189.19"]
+        hosts = ["209.97.189.19"]
         report = getting_stacks_by_host_snmp(hosts, community)
 
         with open("___", "w+") as file:
