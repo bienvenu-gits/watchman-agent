@@ -308,6 +308,15 @@ def is_ip_active(ip, all_active=False):
 #         # Une erreur s'est produite, l'adresse IP est probablement inactive
 #         return False
 
+def parse_version(text):
+    # Semantic Versioning (SemVer):
+    # Date-based Versioning:
+    # Alphanumeric or Custom Schemes:
+    # debian based version parser:
+    # ubuntu based version parser:
+    # parse version with build:
+    pass
+
 
 def snmp_scanner(ip, ports: list = None):
     if ports is None:
