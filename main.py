@@ -23,6 +23,7 @@ from keyring.errors import NoKeyringError
 from pysnmp.hlapi import *
 from sqlitedict import SqliteDict
 from pysnmp.entity.rfc3413.oneliner import cmdgen
+
 """
     Fetch Variables environment
 """
@@ -350,6 +351,7 @@ def scan_snmp_and_append(ip, snmp_port, active_hosts):
         active_hosts.add(ip)
     return active_hosts
 
+
 def reformat_version(version):
     newformat = version
     # Define a regex pattern to match the version (digits and dots)
@@ -368,41 +370,52 @@ def reformat_version(version):
 
 
 def snmp_query_v2(var_bind, hostname, community="public"):
-    print(f"snmp_query_v2 var_bind {var_bind}")
-    stacks = []
-    # Create an SNMP command generator
-    cmd_gen = cmdgen.CommandGenerator()
-
-    # Perform the SNMP walk
-    error_indication, error_status, error_index, var_bind_table = cmd_gen.nextCmd(
-        cmdgen.CommunityData(community),
-        cmdgen.UdpTransportTarget((hostname, 161)),
-        var_bind
+    snmp_engine = SnmpEngine()
+    iterator = getCmd(
+        snmp_engine,
+        CommunityData(community),
+        UdpTransportTarget((hostname, 161)),
+        ContextData(),
+        var_bind,
+        # ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
     )
+
+    error_indication, error_status, error_index, var_binds = next(iterator)
 
     # Check for errors
     if error_indication:
-        print(f"SNMP Walk failed: {error_indication}")
+        print(f"Error: {error_indication}")
+        pass
+
+    elif error_status:
+        print(f"Error: {error_status.prettyPrint()} at {error_index and var_binds[int(error_index) - 1][0] or '?'}")
+        pass
     else:
-        for var_bind_table_row in var_bind_table:
-            for name, val in var_bind_table_row:
-                print(f"*** {val.prettyPrint()}")
-                if var_bind == (1, 3, 6, 1, 2, 1, 25, 6, 3, 1, 2):
-                    name_version = val.prettyPrint()
-                    item = name_version.split("_")
-                    # version = item[1]
-                    version = reformat_version(item[1])
-                    item_version = {
-                        "name": item[0],
-                        "version": version
-                    }
-                    stacks.append(item_version)
-                    return stacks
-                else:
-                    print("+++++++++++++++++++++++++++")
-                    print(f"{name.prettyPrint()}: {val.prettyPrint()}")
-                    return None
-    
+        return var_binds
+
+    return None
+
+
+def parse_stacks(var_bind_table, stacks):
+    for var_bind in var_bind_table:
+        name, value = var_bind
+        print(f"{name.prettyPrint()} *** {value.prettyPrint()}")
+        # if var_bind == (1, 3, 6, 1, 2, 1, 25, 6, 3, 1, 2):
+        #     name_version = val.prettyPrint()
+        #     item = name_version.split("_")
+        #     # version = item[1]
+        #     version = reformat_version(item[1])
+        #     item_version = {
+        #         "name": item[0],
+        #         "version": version
+        #     }
+        #     stacks.append(item_version)
+        #     return stacks
+        # else:
+        #     print("+++++++++++++++++++++++++++")
+        #     print(f"{name.prettyPrint()}: {val.prettyPrint()}")
+        #     return None
+    return None
 
 
 def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
@@ -417,14 +430,16 @@ def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protoco
         var_bind
     )
 
-    errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
+    error_indication, error_status, error_index, var_binds = next(iterator)
 
-    if errorIndication:
-        print(f"Error: {errorIndication}")
-    elif errorStatus:
-        print(f"Error: {errorStatus.prettyPrint()} at {errorIndex and varBinds[int(errorIndex) - 1][0] or '?'}")
+    if error_indication:
+        # print(f"Error: {error_indication}")
+        pass
+    elif error_status:
+        # print(f"Error: {error_status.prettyPrint()} at {error_index and var_binds[int(error_index) - 1][0] or '?'}")
+        pass
     else:
-        return varBinds
+        return var_binds
     return None
 
 
@@ -516,9 +531,15 @@ def getting_stacks_by_host_snmp(active_hosts, community):
         #             pass
 
         # command_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" % (community, host))
-        oid = (1, 3, 6, 1, 2, 1, 1, 1, 0)
-        os_info = snmp_query_v2(oid, host, community)
-        print(f"os_info {os_info}")
+        sys_desc_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
+        sys_hostname_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.5.0'))
+        sys_interfaces_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2'))
+
+        installed_packages_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
+
+        var_bind_table = snmp_query_v2(installed_packages_bind, host, community)
+        parse_stacks(var_bind_table, stacks)
+        # print(f"os_info {result}")
         # try:
         #     os_info = re.search('"(.*)"', command_output[1])
         #     if os_info is not None:
@@ -560,13 +581,13 @@ def getting_stacks_by_host_snmp(active_hosts, community):
         #         print(f"Error executing snmpwalk. Status code: {status}")
         # except Exception as e:
         #     print("Error:", e)
-        hosts_report[hostname] = {
-            "os": os_info,
-            "ipv4": host,
-            # "packages": snmp_query
-        }
+        # hosts_report[hostname] = {
+        #     "os": os_info,
+        #     "ipv4": host,
+        #     # "packages": snmp_query
+        # }
 
-    print(f"out hosts_report {hosts_report}")
+    # print(f"out hosts_report {hosts_report}")
     return json.dumps(hosts_report)
 
 

@@ -7,7 +7,7 @@ def get_one_sync(hostname, bind=None, community='public'):
     snmp_engine = SnmpEngine()
     iterator = getCmd(
         snmp_engine,
-        UsmUserData('usr-sha-aes128', 'authKey1', 'privKey1', usmHMACSHAAuthProtocol, usmAesCfb128Protocol),
+        CommunityData(community),
         UdpTransportTarget(hostname),
         ContextData(),
         ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0)),
