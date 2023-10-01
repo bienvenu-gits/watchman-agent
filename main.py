@@ -341,25 +341,8 @@ def scan_snmp_and_append(ip, snmp_port, active_hosts):
         active_hosts.add(ip)
     return active_hosts
 
-def reformat_version(version):
-    newformat = version
-    # Define a regex pattern to match the version (digits and dots)
-    pattern = r'(\d+(\.\d+)*)'
-
-    # Use re.search to find the first match in the input string
-    match = re.search(pattern, version)
-
-    # Check if a match was found
-    if match:
-        newformat = match.group(1)  # Extract the matched version
-        print("Version:", version)
-    else:
-        print("No version found in the input string.")
-    return newformat
-
 
 def snmp_query_v2(var_bind, hostname, community="public"):
-    print(f"snmp_query_v2 var_bind {var_bind}")
     stacks = []
     # Create an SNMP command generator
     cmd_gen = cmdgen.CommandGenerator()
@@ -377,23 +360,27 @@ def snmp_query_v2(var_bind, hostname, community="public"):
     else:
         for var_bind_table_row in var_bind_table:
             for name, val in var_bind_table_row:
-                print(f"*** {val.prettyPrint()}")
-                if var_bind == (1, 3, 6, 1, 2, 1, 25, 6, 3, 1, 2):
-                    name_version = val.prettyPrint()
-                    item = name_version.split("_")
-                    # version = item[1]
-                    version = reformat_version(item[1])
-                    item_version = {
-                        "name": item[0],
-                        "version": version
-                    }
-                    stacks.append(item_version)
-                    return stacks
+                name_version = val.prettyPrint()
+                item = name_version.split("_")
+                version = item[1]
+                # Define a regex pattern to match the version (digits and dots)
+                pattern = r'(\d+(\.\d+)*)'
+
+                # Use re.search to find the first match in the input string
+                match = re.search(pattern, version)
+
+                # Check if a match was found
+                if match:
+                    version = match.group(1)  # Extract the matched version
+                    print("Version:", version)
                 else:
-                    print("+++++++++++++++++++++++++++")
-                    print(f"{name.prettyPrint()}: {val.prettyPrint()}")
-                    return None
-    
+                    print("No version found in the input string.")
+                item_version = {
+                    "name": item[0],
+                    "version": version
+                }
+                stacks.append(item_version)
+    return stacks
 
 
 def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
@@ -468,8 +455,8 @@ def getting_stacks_by_host_snmp(active_hosts, community):
         print(f"host {host}")
         stacks = []
         # command_output = subprocess.getstatusoutput("snmpwalk -v2c -c %s %s 1.3.6.1.2.1.25.6.3.1.2" % (community, host))
-        # var_bind = (1, 3, 6, 1, 2, 1, 25, 6, 3, 1, 2)
-        # snmp_query = snmp_query_v2(var_bind, host, community)
+        var_bind = (1, 3, 6, 1, 2, 1, 25, 6, 3, 1, 2)
+        snmp_query = snmp_query_v2(var_bind, host, community)
         # print(f"snmp_query {snmp_query}")
         # print(f"command_output {command_output}")
         # if command_output[0] == 0:
@@ -509,7 +496,6 @@ def getting_stacks_by_host_snmp(active_hosts, community):
         # command_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" % (community, host))
         oid = (1, 3, 6, 1, 2, 1, 1, 1, 0)
         os_info = snmp_query_v2(oid, host, community)
-        print(f"os_info {os_info}")
         # try:
         #     os_info = re.search('"(.*)"', command_output[1])
         #     if os_info is not None:
@@ -554,7 +540,7 @@ def getting_stacks_by_host_snmp(active_hosts, community):
         hosts_report[hostname] = {
             "os": os_info,
             "ipv4": host,
-            # "packages": snmp_query
+            "packages": snmp_query
         }
 
     print(f"out hosts_report {hosts_report}")
