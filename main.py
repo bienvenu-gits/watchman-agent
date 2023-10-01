@@ -371,7 +371,7 @@ def reformat_version(version):
 
 def snmp_query_v2(var_bind, hostname, community="public"):
     snmp_engine = SnmpEngine()
-    iterator = getCmd(
+    iterator = nextCmd(
         snmp_engine,
         CommunityData(community),
         UdpTransportTarget((hostname, 161)),
