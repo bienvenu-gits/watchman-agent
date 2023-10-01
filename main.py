@@ -534,6 +534,7 @@ def getting_stacks_by_host_snmp(active_hosts, community):
         sys_desc_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
         sys_hostname_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.5.0'))
         sys_interfaces_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2'))
+        nick_oid = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
 
         installed_packages_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
 
