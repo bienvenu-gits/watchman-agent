@@ -1,17 +1,16 @@
+import asyncio
 import configparser
 import ipaddress
 import json
+import logging
 import os
 import threading
 
 import platform as pt
 import re
-from typing import Union
-
-import schedule
+from concurrent.futures import ThreadPoolExecutor
 import socket
 import subprocess
-import time
 import yaml
 from pathlib import Path
 
@@ -22,7 +21,9 @@ from environs import Env
 from keyring.errors import NoKeyringError
 from pysnmp.hlapi import *
 from sqlitedict import SqliteDict
-from pysnmp.entity.rfc3413.oneliner import cmdgen
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 """
     Fetch Variables environment
@@ -369,9 +370,46 @@ def reformat_version(version):
     return newformat
 
 
+def coroutine_wrapper(coroutine):
+    asyncio.run(coroutine)
+
+
+async def get_packages_async(hostname, community, var_bind):
+    iterator = snmp_query_v2(var_bind=var_bind, hostname=hostname, community=community)
+    result = []
+    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+        for errorIndication, errorStatus, errorIndex, varBinds in iterator:
+            if errorIndication:
+                print(f"Error for {hostname}: {errorIndication}")
+            elif errorStatus:
+                print(f"Error for {hostname}: {errorStatus} at {errorIndex}")
+            else:
+                print('running coroutines')
+                coroutine_tasks = (process_bind(hostname, varBind, parse_packages, result) for varBind in varBinds)
+                executor.map(coroutine_wrapper, coroutine_tasks)
+    return result
+
+
+async def process_bind(hostname, var_bind, callback_fn, result):
+    name, value = var_bind
+    callback_fn(hostname, value, result)
+
+
+def parse_packages(target, value, result):
+    item = value.split("_")
+    version = reformat_version(item[1])
+    data = {
+        "hostname": target,
+        "name": item[0],
+        "version": version
+    }
+    logger.info(data)
+    result.append(data)
+
+
 def snmp_query_v2(var_bind, hostname, community="public"):
     snmp_engine = SnmpEngine()
-    iterator = nextCmd(
+    return nextCmd(
         snmp_engine,
         CommunityData(community),
         UdpTransportTarget((hostname, 161)),
@@ -379,21 +417,6 @@ def snmp_query_v2(var_bind, hostname, community="public"):
         var_bind,
         # ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
     )
-
-    error_indication, error_status, error_index, var_binds = next(iterator)
-
-    # Check for errors
-    if error_indication:
-        print(f"Error: {error_indication}")
-        pass
-
-    elif error_status:
-        print(f"Error: {error_status.prettyPrint()} at {error_index and var_binds[int(error_index) - 1][0] or '?'}")
-        pass
-    else:
-        return var_binds
-
-    return None
 
 
 def parse_stacks(var_bind_table, stacks):
@@ -422,25 +445,13 @@ def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protoco
                   priv_protocol=usmAesCfb128Protocol):
     snmp_engine = SnmpEngine()
 
-    iterator = getCmd(
+    return nextCmd(
         snmp_engine,
         UsmUserData(username, auth_key, priv_key, auth_protocol, priv_protocol),
         UdpTransportTarget(hostname),
         ContextData(),
         var_bind
     )
-
-    error_indication, error_status, error_index, var_binds = next(iterator)
-
-    if error_indication:
-        # print(f"Error: {error_indication}")
-        pass
-    elif error_status:
-        # print(f"Error: {error_status.prettyPrint()} at {error_index and var_binds[int(error_index) - 1][0] or '?'}")
-        pass
-    else:
-        return var_binds
-    return None
 
 
 def scan_up_host_and_append(ip, active_hosts):
@@ -484,109 +495,72 @@ def get_snmp_hosts(network):
 """
 
 
-def getting_stacks_by_host_snmp(active_hosts, community):
+async def getting_stacks_by_host_snmp(active_hosts, community):
     print(f"getting_stacks_by_host_snmp {active_hosts}")
+    getting_tasks = []
+    installed_packages_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
     hosts_report = {}
-    hostname = None
     for host in active_hosts:
-        print(f"host {host}")
-        stacks = []
-        # command_output = subprocess.getstatusoutput("snmpwalk -v2c -c %s %s 1.3.6.1.2.1.25.6.3.1.2" % (community, host))
-        # var_bind = (1, 3, 6, 1, 2, 1, 25, 6, 3, 1, 2)
-        # snmp_query = snmp_query_v2(var_bind, host, community)
-        # print(f"snmp_query {snmp_query}")
-        # print(f"command_output {command_output}")
-        # if command_output[0] == 0:
-        #     mibs = command_output[1].split('\n')
-        #     # print(f"mibs {mibs}")
-        #     for mib in mibs:
-        #         # print(f"mib {mib}")
-        #         try:
-        #             # print(f"firstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirstfirst")
-        #             stack = mib.split('"')[1]
-        #             versions_info = stack.split("-")[-2:]
-        #             stack_names = stack.split("-")[:-2]
-        #         except:
-        #             pass
-        #         try:
-        #             # print(f"secondsecondsecondsecondsecondsecondsecondsecondsecondsecondsecond")
-        #             if versions_info[0][0].isdigit():
-        #                 stacks.append({
-        #                     "name": "-".join(stack_names),
-        #                     "version": "-".join(versions_info)
-        #                 })
-        #             elif versions_info[1][0].isdigit():
-        #                 stacks.append({
-        #                     "name": "-".join(stack_names, versions_info[0]),
-        #                     "version": versions_info[1]
-        #                 })
-        #             else:
-        #                 stacks.append({
-        #                     "name": stack,
-        #                     "version": stack
-        #                 })
+        print("getting packages")
+        getting_tasks.append(get_packages_async(host, community, installed_packages_bind))
 
-        #         except Exception as e:
-        #             print(f"Exception in getting stacks snmp: {e}")
-        #             pass
+    packages = await asyncio.gather(*getting_tasks, return_exceptions=True)
+    print(packages)
 
-        # command_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" % (community, host))
-        sys_desc_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
-        sys_hostname_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.5.0'))
-        sys_interfaces_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2'))
-        nick_oid = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
+    sys_desc_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
+    sys_hostname_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.5.0'))
+    sys_interfaces_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.2'))
+    nick_oid = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
 
-        installed_packages_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
+    # var_bind_table = snmp_query_v2(sys_interfaces_bind, host, community)
+    # parse_stacks(var_bind_table, stacks)
+    # print(f"os_info {result}")
+    # try:
+    #     os_info = re.search('"(.*)"', command_output[1])
+    #     if os_info is not None:
+    #         os_info = os_info.group(1)
+    #     else:
+    #         os_info = command_output[1].split("#")[0]
 
-        var_bind_table = snmp_query_v2(installed_packages_bind, host, community)
-        parse_stacks(var_bind_table, stacks)
-        # print(f"os_info {result}")
-        # try:
-        #     os_info = re.search('"(.*)"', command_output[1])
-        #     if os_info is not None:
-        #         os_info = os_info.group(1)
-        #     else:
-        #         os_info = command_output[1].split("#")[0]
+    # except:
+    #     os_info = command_output[1].split("#")[0]
 
-        # except:
-        #     os_info = command_output[1].split("#")[0]
+    # if len(os_info) >= 50:
+    #     os_info = os_info.split("#")[0]
 
-        # if len(os_info) >= 50:
-        #     os_info = os_info.split("#")[0]
+    # try:
+    #     # Run the snmpwalk command using getstatusoutput
+    #     status, output = command_output
 
-        # try:
-        #     # Run the snmpwalk command using getstatusoutput
-        #     status, output = command_output
-
-        #     # Check if the command was successful
-        #     if status == 0:
-        #         # Parse the SNMP output to extract hostname and OS information
-        #         lines = output.strip().split("\n")
-        #         if len(lines) == 1:
-        #             # Assuming the first line contains the SNMP response
-        #             snmp_response = lines[0].split(" = ")[1]
-        #             print(f"snmp_response {snmp_response}")
-        #             # Split the SNMP response by spaces to extract hostname and OS
-        #             parts = snmp_response.split(" ")
-        #             print(f"parts {parts}")
-        #             if len(parts) >= 2:
-        #                 hostname = parts[2]
-        #                 os_info = parts[1]
-        #                 print("Hostname:", hostname)
-        #                 print("Operating System:", os_info)
-        #             else:
-        #                 print("Hostname and OS information not found in SNMP response.")
-        #         else:
-        #             print("Error: Unable to retrieve SNMP information.")
-        #     else:
-        #         print(f"Error executing snmpwalk. Status code: {status}")
-        # except Exception as e:
-        #     print("Error:", e)
-        # hosts_report[hostname] = {
-        #     "os": os_info,
-        #     "ipv4": host,
-        #     # "packages": snmp_query
-        # }
+    #     # Check if the command was successful
+    #     if status == 0:
+    #         # Parse the SNMP output to extract hostname and OS information
+    #         lines = output.strip().split("\n")
+    #         if len(lines) == 1:
+    #             # Assuming the first line contains the SNMP response
+    #             snmp_response = lines[0].split(" = ")[1]
+    #             print(f"snmp_response {snmp_response}")
+    #             # Split the SNMP response by spaces to extract hostname and OS
+    #             parts = snmp_response.split(" ")
+    #             print(f"parts {parts}")
+    #             if len(parts) >= 2:
+    #                 hostname = parts[2]
+    #                 os_info = parts[1]
+    #                 print("Hostname:", hostname)
+    #                 print("Operating System:", os_info)
+    #             else:
+    #                 print("Hostname and OS information not found in SNMP response.")
+    #         else:
+    #             print("Error: Unable to retrieve SNMP information.")
+    #     else:
+    #         print(f"Error executing snmpwalk. Status code: {status}")
+    # except Exception as e:
+    #     print("Error:", e)
+    # hosts_report[hostname] = {
+    #     "os": os_info,
+    #     "ipv4": host,
+    #     # "packages": snmp_query
+    # }
 
     # print(f"out hosts_report {hosts_report}")
     return json.dumps(hosts_report)
@@ -1138,7 +1112,7 @@ def run_network(community, device, client_id, secret_key):
         # hosts = get_snmp_hosts(device)
         # print(f"hosts {hosts}")
         hosts = ["209.97.189.19"]
-        report = getting_stacks_by_host_snmp(hosts, community)
+        report = asyncio.run(getting_stacks_by_host_snmp(hosts, community))
 
         with open("___", "w+") as file:
             file.write("%s" % report)
