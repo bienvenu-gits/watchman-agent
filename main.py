@@ -382,6 +382,43 @@ def snmp_query_v2(var_bind, hostname, community="public"):
                 stacks.append(item_version)
     return stacks
 
+def snmp_os_info_v2(var_bind, hostname, community="public"):
+    # Create an SNMP command generator
+    cmd_gen = cmdgen.CommandGenerator()
+
+    # Perform the SNMP GET operation
+    error_indication, error_status, error_index, var_binds = cmd_gen.getCmd(
+        cmdgen.CommunityData(community),
+        cmdgen.UdpTransportTarget((hostname, 161)),
+        var_bind
+    )
+
+    # Check for errors
+    if error_indication:
+        print(f"SNMP GET failed: {error_indication}")
+        return None
+    else:
+        for name, val in var_binds:
+            snmp_description = f"{name.prettyPrint()}: {val.prettyPrint()}"
+            # Define regex patterns for hostname and OS name
+            hostname_pattern = r'Linux\s+([^\s]+)'
+            os_name_pattern = r'(\w+)\s+[\w.]+'
+
+            # Use regex to extract the values
+            hostname_match = re.search(hostname_pattern, snmp_description)
+            os_name_match = re.search(os_name_pattern, snmp_description)
+
+            # Check if matches were found and print the results
+            if hostname_match:
+                hostname = hostname_match.group(1)
+                print("Hostname:", hostname)
+
+            if os_name_match:
+                os_name = os_name_match.group(1)
+                print("OS Name:", os_name)
+            return hostname, os_name
+    return None
+
 
 def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
                   priv_protocol=usmAesCfb128Protocol):
@@ -495,7 +532,7 @@ def getting_stacks_by_host_snmp(active_hosts, community):
 
         # command_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" % (community, host))
         oid = (1, 3, 6, 1, 2, 1, 1, 1, 0)
-        os_info = snmp_query_v2(oid, host, community)
+        os_hostname, os_name = snmp_os_info_v2(oid, host, community)
         # try:
         #     os_info = re.search('"(.*)"', command_output[1])
         #     if os_info is not None:
@@ -537,8 +574,8 @@ def getting_stacks_by_host_snmp(active_hosts, community):
         #         print(f"Error executing snmpwalk. Status code: {status}")
         # except Exception as e:
         #     print("Error:", e)
-        hosts_report[hostname] = {
-            "os": os_info,
+        hosts_report[os_hostname] = {
+            "os": os_name,
             "ipv4": host,
             "packages": snmp_query
         }

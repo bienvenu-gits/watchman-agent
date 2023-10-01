@@ -50,19 +50,65 @@
 #     for name, val in var_binds:
 #         print(f"{name.prettyPrint()}: {val.prettyPrint()}")
 
+# import re
+
+# input_string = "Linux elaurichenickson 5.15.0-67-generic #74-Ubuntu SMP Wed Feb 22 14:14:39 UTC 2023 x86_64"
+
+# # Define regex patterns for hostname, OS name, and version
+# hostname_pattern = r'(\S+)'
+# os_name_pattern = r'(\w+)'
+# version_pattern = r'(\d+\.\d+\.\d+-\S+)'
+
+# # Use regex to extract the values
+# hostname_match = re.search(hostname_pattern, input_string)
+# os_name_match = re.search(os_name_pattern, input_string)
+# version_match = re.search(version_pattern, input_string)
+
+# # Check if matches were found and print the results
+# if hostname_match:
+#     hostname = hostname_match.group(1)
+#     print("Hostname:", hostname)
+
+# if os_name_match:
+#     os_name = os_name_match.group(1)
+#     print("OS Name:", os_name)
+
+# if version_match:
+#     version = version_match.group(1)
+#     print("Version:", version)
+
+
+
+# version = reformat_version(item[1])
+
+# def reformat_version(version):
+#     newformat = version
+#     # Define a regex pattern to match the version (digits and dots)
+#     pattern = r'(\d+(\.\d+)*)'
+
+#     # Use re.search to find the first match in the input string
+#     match = re.search(pattern, version)
+
+#     # Check if a match was found
+#     if match:
+#         newformat = match.group(1)  # Extract the matched version
+#         print("Version:", version)
+#     else:
+#         print("No version found in the input string.")
+#     return newformat
+
+
 import re
 
-input_string = "Linux elaurichenickson 5.15.0-67-generic #74-Ubuntu SMP Wed Feb 22 14:14:39 UTC 2023 x86_64"
+snmp_description = "SNMPv2-MIB::sysDescr.0: Linux elaurichenickson 5.15.0-67-generic #74-Ubuntu SMP Wed Feb 22 14:14:39 UTC 2023 x86_64"
 
-# Define regex patterns for hostname, OS name, and version
-hostname_pattern = r'(\S+)'
-os_name_pattern = r'(\w+)'
-version_pattern = r'(\d+\.\d+\.\d+-\S+)'
+# Define regex patterns for hostname and OS name
+hostname_pattern = r'Linux\s+([^\s]+)'
+os_name_pattern = r'(\w+)\s+[\w.]+'
 
 # Use regex to extract the values
-hostname_match = re.search(hostname_pattern, input_string)
-os_name_match = re.search(os_name_pattern, input_string)
-version_match = re.search(version_pattern, input_string)
+hostname_match = re.search(hostname_pattern, snmp_description)
+os_name_match = re.search(os_name_pattern, snmp_description)
 
 # Check if matches were found and print the results
 if hostname_match:
@@ -72,7 +118,3 @@ if hostname_match:
 if os_name_match:
     os_name = os_name_match.group(1)
     print("OS Name:", os_name)
-
-if version_match:
-    version = version_match.group(1)
-    print("Version:", version)
