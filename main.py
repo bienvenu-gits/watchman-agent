@@ -287,28 +287,6 @@ def is_ip_active(ip, all_active=False):
             return False
 
 
-# def is_ip_active(ip, all_active=False):
-#     try:
-#         # Exécutez la commande de ping
-#         result = subprocess.run(['ping', '-c', '1', '-w', '5', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-#                                 text=True)
-#         # Vérifiez le code de retour pour déterminer si le ping a réussi
-#         if result.returncode == 0:
-#             # Le ping a réussi, l'adresse IP est active
-#             return True
-#         else:
-#             # Le ping a échoué, l'adresse IP est inactive
-#             if all_active:
-#                 # On considère tous les hosts comme active
-#                 return True
-#             else:
-#                 return False
-#     except Exception as e:
-#         print(e)
-#         # Une erreur s'est produite, l'adresse IP est probablement inactive
-#         return False
-
-
 def snmp_scanner(ip, ports: list = None):
     if ports is None:
         ports = [161]
@@ -578,9 +556,40 @@ def get_host_packages(command, host_os, file, container):
             except:
                 pass
     elif host_os == "macOS":
-        command_output = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        packages_versions = format_pkg_version(command_output, host_os)
+        packages_versions = []
+        status, output = subprocess.getstatusoutput(command)
 
+        if status == 0:
+            # The command ran successfully, split the output into a list of package names
+            installed_packages = output.splitlines()
+
+            # Print package names and their versions
+            for package in installed_packages:
+                # Run 'pkgutil --pkg-info' to get package version
+                status, package_info = subprocess.getstatusoutput(f'pkgutil --pkg-info {package}')
+                if status == 0:
+                    # Extract the package version from the package_info string
+                    version_line = [line for line in package_info.splitlines() if line.startswith("version: ")]
+                    if version_line:
+                        package_version = version_line[0].replace("version: ", "")
+                        packages_versions.append(
+                            {
+                                "name": package,
+                                "version":package_version
+                            }
+                        )
+                    else:
+                        packages_versions.append(
+                            {
+                                "name": package,
+                                "version":None
+                            }
+                        )
+                else:
+                    print(f"Error retrieving package info for {package}: {package_info}")
+        else:
+            # An error occurred
+            print(f"Error running 'pkgutil --pkgs': {output}")
     else:
         command_output = subprocess.Popen(command, stdout=subprocess.PIPE)
         packages_versions = format_pkg_version(command_output, host_os)
@@ -703,7 +712,7 @@ def network_host_audit(file):
         get_host_packages(
             ["powershell", "-Command", "Get-Package", "|", "Select", "Name,Version"], host_os, file, None)
     elif host_os == "macOS":
-        get_host_packages(["brew", "list", "--versions"],
+        get_host_packages("pkgutil --pkgs",
                           host_os, file, None)
     else:
         if "alpine" in host_os:

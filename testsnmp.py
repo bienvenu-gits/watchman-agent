@@ -98,23 +98,53 @@
 #     return newformat
 
 
-import re
+# import re
 
-snmp_description = "SNMPv2-MIB::sysDescr.0: Linux elaurichenickson 5.15.0-67-generic #74-Ubuntu SMP Wed Feb 22 14:14:39 UTC 2023 x86_64"
+# snmp_description = "SNMPv2-MIB::sysDescr.0: Linux elaurichenickson 5.15.0-67-generic #74-Ubuntu SMP Wed Feb 22 14:14:39 UTC 2023 x86_64"
 
-# Define regex patterns for hostname and OS name
-hostname_pattern = r'Linux\s+([^\s]+)'
-os_name_pattern = r'(\w+)\s+[\w.]+'
+# # Define regex patterns for hostname and OS name
+# hostname_pattern = r'Linux\s+([^\s]+)'
+# os_name_pattern = r'(\w+)\s+[\w.]+'
 
-# Use regex to extract the values
-hostname_match = re.search(hostname_pattern, snmp_description)
-os_name_match = re.search(os_name_pattern, snmp_description)
+# # Use regex to extract the values
+# hostname_match = re.search(hostname_pattern, snmp_description)
+# os_name_match = re.search(os_name_pattern, snmp_description)
 
-# Check if matches were found and print the results
-if hostname_match:
-    hostname = hostname_match.group(1)
-    print("Hostname:", hostname)
+# # Check if matches were found and print the results
+# if hostname_match:
+#     hostname = hostname_match.group(1)
+#     print("Hostname:", hostname)
 
-if os_name_match:
-    os_name = os_name_match.group(1)
-    print("OS Name:", os_name)
+# if os_name_match:
+#     os_name = os_name_match.group(1)
+#     print("OS Name:", os_name)
+
+
+import subprocess
+
+# Run the 'pkgutil --pkgs' command to get a list of installed packages
+status, output = subprocess.getstatusoutput('pkgutil --pkgs')
+
+if status == 0:
+    # The command ran successfully, split the output into a list of package names
+    installed_packages = output.splitlines()
+
+    # Print package names and their versions
+    for package in installed_packages:
+        # Run 'pkgutil --pkg-info' to get package version
+        status, package_info = subprocess.getstatusoutput(f'pkgutil --pkg-info {package}')
+        if status == 0:
+            # Extract the package version from the package_info string
+            version_line = [line for line in package_info.splitlines() if line.startswith("version: ")]
+            if version_line:
+                package_version = version_line[0].replace("version: ", "")
+                print(f"Package: {package}, Version: {package_version}")
+            else:
+                print(f"Package: {package}, Version: Not Found")
+        else:
+            print(f"Error retrieving package info for {package}: {package_info}")
+else:
+    # An error occurred
+    print(f"Error running 'pkgutil --pkgs': {output}")
+
+
