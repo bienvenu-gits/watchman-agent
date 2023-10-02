@@ -489,9 +489,9 @@ async def get_packages_async(hostname, community, var_bind):
             print(f"SNMP GET request returned an error: {error_status}")
         else:
             # Print the retrieved values
-            for var_bind in var_binds:
-                oid, value = var_bind
-                if '1.3.6.1.2.1.25.6.3.1.2' not in str(oid):
+            for bind in var_binds:
+                oid, value = bind
+                if var_bind not in str(oid):
                     stop_loop = True  # Mettre la variable de contrôle à True pour arrêter la boucle
                     break
                 raw_name, raw_version, raw_arch = value.prettyPrint().split("_")
@@ -515,7 +515,7 @@ def snmp_query_v2(var_bind, hostname, community="public"):
         CommunityData(community),
         UdpTransportTarget((hostname, 161)),
         ContextData(),
-        var_bind,
+        ObjectType(ObjectIdentity(var_bind)),
         # ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
     )
 
@@ -598,7 +598,7 @@ def get_snmp_hosts(network):
 
 async def getting_stacks_by_host_snmp(active_hosts, community):
     print(f"getting_stacks_by_host_snmp {active_hosts}")
-    installed_packages_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
+    installed_packages_bind = '1.3.6.1.2.1.25.6.3.1.2'
     hosts_report = {}
     packages = []
     for host in active_hosts:
