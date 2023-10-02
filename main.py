@@ -21,6 +21,8 @@ from environs import Env
 from keyring.errors import NoKeyringError
 from pysnmp.hlapi import *
 from sqlitedict import SqliteDict
+from semver.version import Version as sem_version
+from packaging import version as pkg_version
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -310,14 +312,112 @@ def is_ip_active(ip, all_active=False):
 #         # Une erreur s'est produite, l'adresse IP est probablement inactive
 #         return False
 
+
+linux_version_pattern = re.compile(
+    r"^"
+    # epoch must start with a digit
+    r"(\d+:)?"
+    # upstream must start with a digit
+    r"\d"
+    r"("
+    # upstream  can contain only alphanumerics and the characters . + -
+    # ~ (full stop, plus, hyphen, tilde)
+    r"[A-Za-z0-9\.\+\~\-]+"
+    r"|"
+    # If there is no debian_revision then hyphens are not allowed in version.
+    r"[A-Za-z0-9\.\+\~]+-[A-Za-z0-9\+\.\~]+"
+    r")?"
+    r"$"
+)
+
+irregular_version_pattern = re.compile(r'\d+(\.\d+)*')
+
+
 def parse_version(text):
-    # Semantic Versioning (SemVer):
-    # Date-based Versioning:
-    # Alphanumeric or Custom Schemes:
-    # debian based version parser:
-    # ubuntu based version parser:
-    # parse version with build:
-    pass
+    """ Semantic Versioning (SemVer)
+     Date-based Versioning
+     Alphanumeric or Custom Schemes
+     Debian based version parser
+     Ubuntu based version parser
+     parse version with build:
+    """
+    if linux_version_pattern.match(text):
+        match = linux_version_pattern.search(text)
+        if match:
+            version = match.group()
+            if ":" in version:
+                epoch, _, version = version.partition(":")
+                epoch = int(epoch)
+            else:
+                epoch = 0
+
+            if "-" in version:
+                upstream, _, revision = version.rpartition("-")
+            else:
+                upstream = version
+                revision = "0"
+
+            version = upstream
+            regex_matched = False
+
+            if 'ubuntu' in version:
+                match = irregular_version_pattern.search(version)
+                if match:
+                    regex_matched = True
+                    version = match.group()
+            elif 'debian' in version:
+                match = irregular_version_pattern.search(version)
+                if match:
+                    regex_matched = True
+                    version = match.group()
+            elif 'git' in version:
+                match = irregular_version_pattern.search(version)
+                if match:
+                    regex_matched = True
+                    version = match.group()
+            elif '-' in version:
+                match = irregular_version_pattern.search(version)
+                if match:
+                    regex_matched = True
+                    version = match.group()
+            else:
+                match = irregular_version_pattern.search(version)
+                if match:
+                    regex_matched = True
+                    version = match.group()
+
+            parsed = None
+            if not regex_matched:
+                try:
+                    parsed = sem_version.parse(version)
+                except ValueError:
+                    try:
+                        parsed = pkg_version.parse(version)
+                    except pkg_version.InvalidVersion:
+                        parsed = None
+
+            if parsed:
+                parsed_split_len = len(str(parsed).split("."))
+                if parsed_split_len < 3:
+                    version = [str(parsed.major), str(parsed.minor)]
+                elif parsed_split_len == 3:
+                    try:
+                        version = [str(parsed.major), str(parsed.minor), str(parsed.patch)]
+                    except AttributeError:
+                        version = [str(parsed.major), str(parsed.minor), str(parsed.micro)]
+                else:
+                    version = parsed
+
+                if isinstance(version, list):
+                    version = ".".join(version)
+                else:
+                    version = version
+            else:
+                if not regex_matched:
+                    print(f'Cannot definitely parse version {text}')
+
+            # print(f"Final parsed version: {version}")
+            return version
 
 
 def snmp_scanner(ip, ports: list = None):
@@ -370,6 +470,10 @@ def reformat_version(version):
     return newformat
 
 
+def parse_stack_name(raw_name):
+    pass
+
+
 def coroutine_wrapper(coroutine):
     asyncio.run(coroutine)
 
@@ -377,34 +481,31 @@ def coroutine_wrapper(coroutine):
 async def get_packages_async(hostname, community, var_bind):
     iterator = snmp_query_v2(var_bind=var_bind, hostname=hostname, community=community)
     result = []
-    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-        for errorIndication, errorStatus, errorIndex, varBinds in iterator:
-            if errorIndication:
-                print(f"Error for {hostname}: {errorIndication}")
-            elif errorStatus:
-                print(f"Error for {hostname}: {errorStatus} at {errorIndex}")
-            else:
-                print('running coroutines')
-                coroutine_tasks = (process_bind(hostname, varBind, parse_packages, result) for varBind in varBinds)
-                executor.map(coroutine_wrapper, coroutine_tasks)
+    stop_loop = False
+    for error_indication, error_status, error_index, var_binds in iterator:
+        if error_indication:
+            print(f"SNMP GET request failed: {error_indication}")
+        elif error_status:
+            print(f"SNMP GET request returned an error: {error_status}")
+        else:
+            # Print the retrieved values
+            for var_bind in var_binds:
+                oid, value = var_bind
+                if '1.3.6.1.2.1.25.6.3.1.2' not in str(oid):
+                    stop_loop = True  # Mettre la variable de contrôle à True pour arrêter la boucle
+                    break
+                raw_name, raw_version, raw_arch = value.prettyPrint().split("_")
+                version = parse_version(raw_version)
+                data = {
+                    "hostname": hostname,
+                    "name": raw_name,
+                    "version": version,
+                    "raw_version": raw_version
+                }
+                result.append(data)
+        if stop_loop:
+            break  # Arrêter la boucle externe lorsque la variable de contrôle est True
     return result
-
-
-async def process_bind(hostname, var_bind, callback_fn, result):
-    name, value = var_bind
-    callback_fn(hostname, value, result)
-
-
-def parse_packages(target, value, result):
-    item = value.split("_")
-    version = reformat_version(item[1])
-    data = {
-        "hostname": target,
-        "name": item[0],
-        "version": version
-    }
-    logger.info(data)
-    result.append(data)
 
 
 def snmp_query_v2(var_bind, hostname, community="public"):
@@ -497,20 +598,18 @@ def get_snmp_hosts(network):
 
 async def getting_stacks_by_host_snmp(active_hosts, community):
     print(f"getting_stacks_by_host_snmp {active_hosts}")
-    getting_tasks = []
     installed_packages_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
     hosts_report = {}
+    packages = []
     for host in active_hosts:
         print("getting packages")
-        getting_tasks.append(get_packages_async(host, community, installed_packages_bind))
+        packages.extend(await get_packages_async(host, community, installed_packages_bind))
 
-    packages = await asyncio.gather(*getting_tasks, return_exceptions=True)
     print(packages)
 
     sys_desc_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
     sys_hostname_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.5.0'))
     sys_interfaces_bind = ObjectType(ObjectIdentity('1.3.6.1.2.1.2'))
-    nick_oid = ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
 
     # var_bind_table = snmp_query_v2(sys_interfaces_bind, host, community)
     # parse_stacks(var_bind_table, stacks)
