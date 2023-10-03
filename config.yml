@@ -16,7 +16,7 @@ network:
       user: usr-sha-aes128
 runtime:
   client_id: g6wW5YVrD6J3IwvY6DB4jEyq7iGQkVHJhwyDYHc0
-  mode: network
+  mode: agent
   secret_key: VGwDqOAT6CgtoPQL1WUCcsyBZiMHbXEHaXGQS1EQbyzOnbWTanTC6QVNrM4m
 schedule:
   day: '*'

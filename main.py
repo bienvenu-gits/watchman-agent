@@ -319,6 +319,36 @@ def scan_snmp_and_append(ip, snmp_port, active_hosts):
         active_hosts.add(ip)
     return active_hosts
 
+def  reformating_version(version):
+    patterns = [
+        r'(\d+\.\d+\.\d+)',
+        r'(\d+\.\d+\.\d+)[^\d]*(\d+)',
+        r'(\d+\.\d+)[^\d]*(\d+)',
+        r'(\d+(\.\d+)*)',
+        r'(\b(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b)',
+        r'(\b(\d+\.\d+\.\d+-\d+\.\w+)\b)',
+        r'(\b(\d+)\b)',
+        r'(\b(\d+(?:\.\d+)+)\b)',
+        r'(\b([a-zA-Z]*\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b)',
+        r'(\b(\d{4}-\d{2}-\d{2})\b)',
+        r'\b(\d+\.\d+\.\d+[-\w]*)\b',
+        r'\b(\d+\.\d+\.\d+-\d+\.\w+)\b',
+        r'\b[vV]?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b',
+        r'==(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)$'                    
+    ]
+                # Define a regex pattern to match the version (digits and dots)
+    for pattern in patterns:
+                    # Use re.search to find the first match in the input string
+        match = re.search(pattern, version)
+
+                    # Check if a match was found
+        if match:
+            version = match.group(1)  # Extract the matched version
+            break
+        else:
+            print("No version found in the input string.")
+    return version
+
 
 def snmp_query_v2(var_bind, hostname, community="public"):
     stacks = []
@@ -343,39 +373,7 @@ def snmp_query_v2(var_bind, hostname, community="public"):
                 name_version = val.prettyPrint()
                 print(f"name_version {name_version}")
                 item = name_version.split("_")
-                version = item[1]
-                # print(f"version {version}")
-                # if ":" in version:
-                #     version = version.split(":")
-                #     version = version[1]
-                patterns = [
-                    r'(\d+\.\d+\.\d+)',
-                    r'(\d+\.\d+\.\d+)[^\d]*(\d+)',
-                    r'(\d+\.\d+)[^\d]*(\d+)',
-                    r'(\d+(\.\d+)*)',
-                    r'(\b(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b)',
-                    r'(\b(\d+\.\d+\.\d+-\d+\.\w+)\b)',
-                    r'(\b(\d+)\b)',
-                    r'(\b(\d+(?:\.\d+)+)\b)',
-                    r'(\b([a-zA-Z]*\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b)',
-                    r'(\b(\d{4}-\d{2}-\d{2})\b)',
-                    r'\b(\d+\.\d+\.\d+[-\w]*)\b',
-                    r'\b(\d+\.\d+\.\d+-\d+\.\w+)\b',
-                    r'\b[vV]?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b',
-                    r'==(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)$'                    
-                ]
-                # Define a regex pattern to match the version (digits and dots)
-                for pattern in patterns:
-                    # Use re.search to find the first match in the input string
-                    match = re.search(pattern, version)
-
-                    # Check if a match was found
-                    if match:
-                        version = match.group(1)  # Extract the matched version
-                        break
-                    else:
-                        print("No version found in the input string.")
-                        
+                version = reformating_version(item[1])
                 item_version = {
                     "name": item[0],
                     "version": version
@@ -570,9 +568,10 @@ def get_host_packages(command, host_os, file, container):
             try:
 
                 if el[-1][0].isdigit() and el[-1][-1].isdigit():
+                    version=reformating_version(el[-1])
                     p_v = {
                         "name": " ".join(el[:-1]),
-                        "version": el[-1]
+                        "version": version
                     }
                     if p_v["name"] != "":
                         packages_versions.append(p_v)
@@ -695,9 +694,11 @@ def format_pkg_version(command1_output, host_os):
                 p_v = pkg_version.split('^^')
 
                 if p_v[1][0].isdigit():
+                    version = reformating_version(p_v[1])
+                    name = p_v[0].split(":")
                     tab.append({
-                        "name": p_v[0],
-                        "version": p_v[1]
+                        "name": name[0],
+                        "version": version
                     })
             except:
                 pass
@@ -713,6 +714,8 @@ def format_pkg_version(command1_output, host_os):
 
                 name = "-".join(p_v[:-2])
                 version = "-".join(p_v[-2:])
+                
+                version = reformating_version(version)
 
                 tab.append({
                     "name": name,
