@@ -292,135 +292,6 @@ def is_ip_active(ip, all_active=False):
             return False
 
 
-# def is_ip_active(ip, all_active=False):
-#     try:
-#         # Exécutez la commande de ping
-#         result = subprocess.run(['ping', '-c', '1', '-w', '5', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-#                                 text=True)
-#         # Vérifiez le code de retour pour déterminer si le ping a réussi
-#         if result.returncode == 0:
-#             # Le ping a réussi, l'adresse IP est active
-#             return True
-#         else:
-#             # Le ping a échoué, l'adresse IP est inactive
-#             if all_active:
-#                 # On considère tous les hosts comme active
-#                 return True
-#             else:
-#                 return False
-#     except Exception as e:
-#         print(e)
-#         # Une erreur s'est produite, l'adresse IP est probablement inactive
-#         return False
-
-
-linux_version_pattern = re.compile(
-    r"^"
-    # epoch must start with a digit
-    r"(\d+:)?"
-    # upstream must start with a digit
-    r"\d"
-    r"("
-    # upstream  can contain only alphanumerics and the characters . + -
-    # ~ (full stop, plus, hyphen, tilde)
-    r"[A-Za-z0-9\.\+\~\-]+"
-    r"|"
-    # If there is no debian_revision then hyphens are not allowed in version.
-    r"[A-Za-z0-9\.\+\~]+-[A-Za-z0-9\+\.\~]+"
-    r")?"
-    r"$"
-)
-
-irregular_version_pattern = re.compile(r'\d+(\.\d+)*')
-
-
-def parse_version(text):
-    """ Semantic Versioning (SemVer)
-     Date-based Versioning
-     Alphanumeric or Custom Schemes
-     Debian based version parser
-     Ubuntu based version parser
-     parse version with build:
-    """
-    if linux_version_pattern.match(text):
-        match = linux_version_pattern.search(text)
-        if match:
-            version = match.group()
-            if ":" in version:
-                epoch, _, version = version.partition(":")
-                epoch = int(epoch)
-            else:
-                epoch = 0
-
-            if "-" in version:
-                upstream, _, revision = version.rpartition("-")
-            else:
-                upstream = version
-                revision = "0"
-
-            version = upstream
-            regex_matched = False
-
-            if 'ubuntu' in version:
-                match = irregular_version_pattern.search(version)
-                if match:
-                    regex_matched = True
-                    version = match.group()
-            elif 'debian' in version:
-                match = irregular_version_pattern.search(version)
-                if match:
-                    regex_matched = True
-                    version = match.group()
-            elif 'git' in version:
-                match = irregular_version_pattern.search(version)
-                if match:
-                    regex_matched = True
-                    version = match.group()
-            elif '-' in version:
-                match = irregular_version_pattern.search(version)
-                if match:
-                    regex_matched = True
-                    version = match.group()
-            else:
-                match = irregular_version_pattern.search(version)
-                if match:
-                    regex_matched = True
-                    version = match.group()
-
-            parsed = None
-            if not regex_matched:
-                try:
-                    parsed = sem_version.parse(version)
-                except ValueError:
-                    try:
-                        parsed = pkg_version.parse(version)
-                    except pkg_version.InvalidVersion:
-                        parsed = None
-
-            if parsed:
-                parsed_split_len = len(str(parsed).split("."))
-                if parsed_split_len < 3:
-                    version = [str(parsed.major), str(parsed.minor)]
-                elif parsed_split_len == 3:
-                    try:
-                        version = [str(parsed.major), str(parsed.minor), str(parsed.patch)]
-                    except AttributeError:
-                        version = [str(parsed.major), str(parsed.minor), str(parsed.micro)]
-                else:
-                    version = parsed
-
-                if isinstance(version, list):
-                    version = ".".join(version)
-                else:
-                    version = version
-            else:
-                if not regex_matched:
-                    print(f'Cannot definitely parse version {text}')
-
-            # print(f"Final parsed version: {version}")
-            return version
-
-
 def snmp_scanner(ip, ports: list = None):
     if ports is None:
         ports = [161]
@@ -737,9 +608,41 @@ def get_host_packages(command, host_os, file, container):
             except:
                 pass
     elif host_os == "macOS":
-        command_output = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        packages_versions = format_pkg_version(command_output, host_os)
+        packages_versions = []
+        status, output = subprocess.getstatusoutput(command)
 
+        if status == 0:
+            # The command ran successfully, split the output into a list of package names
+            installed_packages = output.splitlines()
+
+            # Print package names and their versions
+            for package in installed_packages:
+                # Run 'pkgutil --pkg-info' to get package version
+                status, package_info = subprocess.getstatusoutput(f'pkgutil --pkg-info {package}')
+                if status == 0:
+                    # Extract the package version from the package_info string
+                    version_line = [line for line in package_info.splitlines() if line.startswith("version: ")]
+                    if version_line:
+                        package_version = version_line[0].replace("version: ", "")
+                        package_name = package.split('.')[-1]
+                        packages_versions.append(
+                            {
+                                "name": package_name,
+                                "version":package_version
+                            }
+                        )
+                    else:
+                        packages_versions.append(
+                            {
+                                "name": package,
+                                "version":None
+                            }
+                        )
+                else:
+                    print(f"Error retrieving package info for {package}: {package_info}")
+        else:
+            # An error occurred
+            print(f"Error running 'pkgutil --pkgs': {output}")
     else:
         command_output = subprocess.Popen(command, stdout=subprocess.PIPE)
         packages_versions = format_pkg_version(command_output, host_os)
@@ -862,7 +765,7 @@ def network_host_audit(file):
         get_host_packages(
             ["powershell", "-Command", "Get-Package", "|", "Select", "Name,Version"], host_os, file, None)
     elif host_os == "macOS":
-        get_host_packages(["brew", "list", "--versions"],
+        get_host_packages("pkgutil --pkgs",
                           host_os, file, None)
     else:
         if "alpine" in host_os:
@@ -953,9 +856,11 @@ def format_json_report(client_id, client_secret, file):
                 "AGENT-SECRET": client_secret
             },
             data={
-                "data": file_content
+                "data": json.dumps(file_content)
             }
         )
+        print(f"response {response}")
+        print(f"response {response.status_code}")
         if response.status_code != 200:
             click.echo("\nExecution error️")
             click.echo("Message: ", response.json()["detail"])
@@ -1202,7 +1107,6 @@ def run_network(community, device, client_id, secret_key):
         print(f"RUN NETWORK")
         # target_host = get_public_ip(device)
         # hosts = get_snmp_hosts(device)
-        # print(f"hosts {hosts}")
         hosts = ["209.97.189.19"]
         report = asyncio.run(getting_stacks_by_host_snmp(hosts, community))
 
