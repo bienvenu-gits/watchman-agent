@@ -11,7 +11,7 @@ def get_one_sync(hostname, bind=None, community='public'):
         UdpTransportTarget(hostname),
         ContextData(),
         # ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0)),
-        # ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysName', 0)),
+        ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysName', 0)),
         # ObjectType(ObjectIdentity('1.3.6.1.2.1.25.6.3.1.2'))
     )
 
