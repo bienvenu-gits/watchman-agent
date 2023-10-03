@@ -336,22 +336,46 @@ def snmp_query_v2(var_bind, hostname, community="public"):
     if error_indication:
         print(f"SNMP Walk failed: {error_indication}")
     else:
+        # print(f"var_bind_table {var_bind_table}")
         for var_bind_table_row in var_bind_table:
+            # print(f"var_bind_table_row {var_bind_table_row}")
             for name, val in var_bind_table_row:
                 name_version = val.prettyPrint()
+                print(f"name_version {name_version}")
                 item = name_version.split("_")
                 version = item[1]
+                # print(f"version {version}")
+                # if ":" in version:
+                #     version = version.split(":")
+                #     version = version[1]
+                patterns = [
+                    r'(\d+\.\d+\.\d+)',
+                    r'(\d+\.\d+\.\d+)[^\d]*(\d+)',
+                    r'(\d+\.\d+)[^\d]*(\d+)',
+                    r'(\d+(\.\d+)*)',
+                    r'(\b(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b)',
+                    r'(\b(\d+\.\d+\.\d+-\d+\.\w+)\b)',
+                    r'(\b(\d+)\b)',
+                    r'(\b(\d+(?:\.\d+)+)\b)',
+                    r'(\b([a-zA-Z]*\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b)',
+                    r'(\b(\d{4}-\d{2}-\d{2})\b)',
+                    r'\b(\d+\.\d+\.\d+[-\w]*)\b',
+                    r'\b(\d+\.\d+\.\d+-\d+\.\w+)\b',
+                    r'\b[vV]?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b',
+                    r'==(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)$'                    
+                ]
                 # Define a regex pattern to match the version (digits and dots)
-                pattern = r'(\d+(\.\d+)*)'
+                for pattern in patterns:
+                    # Use re.search to find the first match in the input string
+                    match = re.search(pattern, version)
 
-                # Use re.search to find the first match in the input string
-                match = re.search(pattern, version)
-
-                # Check if a match was found
-                if match:
-                    version = match.group(1)  # Extract the matched version
-                else:
-                    print("No version found in the input string.")
+                    # Check if a match was found
+                    if match:
+                        version = match.group(1)  # Extract the matched version
+                        break
+                    else:
+                        print("No version found in the input string.")
+                        
                 item_version = {
                     "name": item[0],
                     "version": version
@@ -572,9 +596,10 @@ def get_host_packages(command, host_os, file, container):
                     version_line = [line for line in package_info.splitlines() if line.startswith("version: ")]
                     if version_line:
                         package_version = version_line[0].replace("version: ", "")
+                        package_name = package.split('.')[-1]
                         packages_versions.append(
                             {
-                                "name": package,
+                                "name": package_name,
                                 "version":package_version
                             }
                         )
@@ -806,6 +831,8 @@ def format_json_report(client_id, client_secret, file):
                 "data": json.dumps(file_content)
             }
         )
+        print(f"response {response}")
+        print(f"response {response.status_code}")
         if response.status_code != 200:
             click.echo("\nExecution error️")
             click.echo("Message: ", response.json()["detail"])
