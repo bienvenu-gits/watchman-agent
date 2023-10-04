@@ -453,7 +453,8 @@ def scan_snmp_and_append(ip, snmp_port, active_hosts):
         active_hosts.add(ip)
     return active_hosts
 
-def  reformating_version(version):
+
+def reformatting_version(version):
     patterns = [
         r'(\d+\.\d+\.\d+)',
         r'(\d+\.\d+\.\d+)[^\d]*(\d+)',
@@ -470,10 +471,11 @@ def  reformating_version(version):
         r'\b[vV]?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b',
         r'==(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)$'
     ]
-                # Define a regex pattern to match the version (digits and dots)
+    # Define a regex pattern to match the version (digits and dots)
     for pattern in patterns:
-                    # Use re.search to find the first match in the input string
+        # Use re.search to find the first match in the input string
         match = re.search(pattern, version)
+
 
 def coroutine_wrapper(coroutine):
     asyncio.run(coroutine)
@@ -536,45 +538,6 @@ async def get_host_info_async(hostname, community, var_bind):
             print("Cannot parse host informations.")
     return result
 
-                    # Check if a match was found
-        if match:
-            version = match.group(1)  # Extract the matched version
-            break
-        else:
-            print("No version found in the input string.")
-    return version
-
-
-def snmp_query_v2(var_bind, hostname, community="public"):
-    stacks = []
-    # Create an SNMP command generator
-    cmd_gen = cmdgen.CommandGenerator()
-
-    # Perform the SNMP walk
-    error_indication, error_status, error_index, var_bind_table = cmd_gen.nextCmd(
-        cmdgen.CommunityData(community),
-        cmdgen.UdpTransportTarget((hostname, 161)),
-        var_bind
-    )
-
-    # Check for errors
-    if error_indication:
-        print(f"SNMP Walk failed: {error_indication}")
-    else:
-        # print(f"var_bind_table {var_bind_table}")
-        for var_bind_table_row in var_bind_table:
-            # print(f"var_bind_table_row {var_bind_table_row}")
-            for name, val in var_bind_table_row:
-                name_version = val.prettyPrint()
-                print(f"name_version {name_version}")
-                item = name_version.split("_")
-                version = reformating_version(item[1])
-                item_version = {
-                    "name": item[0],
-                    "version": version
-                }
-                stacks.append(item_version)
-    return stacks
 
 async def parse_snmp_response(iterator, var_bind):
     def sub_thread_iter(bind, var, res, stop):
@@ -702,11 +665,11 @@ async def getting_stacks_by_host_snmp(active_hosts, community):
         start = time.perf_counter()
         packages = await get_packages_async(host, community, installed_packages_bind)
         end = time.perf_counter()
-        print(f"getting packages took: {(end-start)/60:.2f} minutes")
+        print(f"getting packages took: {(end - start) / 60:.2f} minutes")
         start = time.perf_counter()
         os_info = await get_host_info_async(host, community, sys_info_bind)
         end = time.perf_counter()
-        print(f"getting host infos took: {(end-start)/60:.2f} minutes")
+        print(f"getting host infos took: {(end - start) / 60:.2f} minutes")
 
         # print(os_info)
         # print(packages)
@@ -789,7 +752,7 @@ def get_host_packages(command, host_os, file, container):
             try:
 
                 if el[-1][0].isdigit() and el[-1][-1].isdigit():
-                    version=reformating_version(el[-1])
+                    version = reformatting_version(el[-1])
                     p_v = {
                         "name": " ".join(el[:-1]),
                         "version": version
@@ -820,14 +783,14 @@ def get_host_packages(command, host_os, file, container):
                         packages_versions.append(
                             {
                                 "name": package_name,
-                                "version":package_version
+                                "version": package_version
                             }
                         )
                     else:
                         packages_versions.append(
                             {
                                 "name": package,
-                                "version":None
+                                "version": None
                             }
                         )
                 else:
@@ -915,7 +878,7 @@ def format_pkg_version(command1_output, host_os):
                 p_v = pkg_version.split('^^')
 
                 if p_v[1][0].isdigit():
-                    version = reformating_version(p_v[1])
+                    version = reformatting_version(p_v[1])
                     name = p_v[0].split(":")
                     tab.append({
                         "name": name[0],
@@ -936,7 +899,7 @@ def format_pkg_version(command1_output, host_os):
                 name = "-".join(p_v[:-2])
                 version = "-".join(p_v[-2:])
 
-                version = reformating_version(version)
+                version = reformatting_version(version)
 
                 tab.append({
                     "name": name,

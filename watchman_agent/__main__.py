@@ -23,7 +23,8 @@ class KeyDB(object):
             self.__db_object = SqliteDict(self._db, tablename=self._table_name, encode=json.dumps, decode=json.loads)
 
         if self._mode == "write":
-            self.__db_object = SqliteDict(self._db, tablename=self._table_name, encode=json.dumps, decode=json.loads, autocommit=True)
+            self.__db_object = SqliteDict(self._db, tablename=self._table_name, encode=json.dumps, decode=json.loads,
+                                          autocommit=True)
         return self
 
     def read_value(self, key: str):
@@ -39,6 +40,7 @@ class KeyDB(object):
 
     def __exit__(self, type, val, tb):
         self.__db_object.close()
+
 
 class IP(click.ParamType):
     name = "ip"
@@ -137,7 +139,8 @@ def connect(network_mode, client_id, secret_key, community, ip_network, device):
             env_path = str(Path(__file__).resolve().parent) + "\commands\dist\.env"
             if not network_mode:
                 os.system(
-                    str(Path(__file__).resolve().parent) + f"\commands\dist\main.exe {client_id} {secret_key} {env_path}")
+                    str(Path(
+                        __file__).resolve().parent) + f"\commands\dist\main.exe {client_id} {secret_key} {env_path}")
                 cron = CronJob()
                 cron.new_job(command=f"watchman-agent connect {client_id} {secret_key}", comment="agentRunFirst")
             else:
@@ -152,7 +155,8 @@ def connect(network_mode, client_id, secret_key, community, ip_network, device):
             env_path = str(Path(__file__).resolve().parent) + "/commands/dist/.env"
 
             if not network_mode:
-                os.system(str(Path(__file__).resolve().parent) + f"/commands/dist/main {client_id} {secret_key} {env_path}")
+                os.system(
+                    str(Path(__file__).resolve().parent) + f"/commands/dist/main {client_id} {secret_key} {env_path}")
                 cron = CronJob()
                 cron.new_job(
                     command=f"watchman-agent connect {client_id} {secret_key}", comment="agentRun")
