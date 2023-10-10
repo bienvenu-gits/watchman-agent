@@ -1,4 +1,5 @@
 import asyncio
+import binascii
 import configparser
 import ipaddress
 import json
@@ -342,6 +343,9 @@ def parse_version(text):
      Ubuntu based version parser
      parse version with build:
     """
+    if not text:
+        return None
+
     if linux_version_pattern.match(text):
         match = linux_version_pattern.search(text)
         if match:
@@ -438,16 +442,13 @@ def snmp_scanner(ip, ports: list = None):
             # Tentez de se connecter à l'adresse IP et au port donnés
             s.connect((ip, port))
             # Si la connexion réussit, le port est ouvert
-            print(f'IP : {ip}, Port: {port}, Status: open.')
             open_ports.append(port)
         except Exception as e:
             print(f'Connexion exception the host must probably filtering the port. Reason: {e}')
-            print(f'IP : {ip}, Port: {port}, Status: closed.')
     return open_ports
 
 
 def scan_snmp_and_append(ip, snmp_port, active_hosts):
-    print(f"Scanning SNMP open host {ip}...")
     scan_result = snmp_scanner(ip=ip, ports=[snmp_port])
     if len(scan_result) > 0:
         active_hosts.add(ip)
@@ -458,11 +459,102 @@ def coroutine_wrapper(coroutine):
     asyncio.run(coroutine)
 
 
-async def get_packages_async(hostname, community, var_bind):
+def extract_info_linux(package_string):
+    # Utilisation d'une expression régulière pour extraire le nom, la version et l'architecture sous Linux
+    pattern = r'^(.*?)_([^_]+)_([^\s]+)$'
+    match = re.match(pattern, package_string)
+
+    if match:
+        name = match.group(1)
+        version = match.group(2)
+        architecture = match.group(3)
+        return {"name": name, "version": version, "arch": architecture}
+    else:
+        return None
+
+
+def extract_info_windows(package_string):
+    try:
+        # Essayer de décoder la chaîne hexadécimale
+        decoded_string = binascii.unhexlify(package_string[2:]).decode('latin-1')
+        print(decoded_string)
+
+        # Utilisation d'une expression régulière pour extraire le nom, la version et l'architecture sous Windows
+        pattern = r'^(.*?)\s*-\s*(.*?)\s*\((.*?)\)$'
+        match = re.match(pattern, decoded_string)
+
+        if match:
+            name = match.group(1)
+            version = match.group(2)
+            architecture = match.group(3)
+            return {"name": name, "version": version, "architecture": architecture}
+        else:
+            return {"name": decoded_string, "version": None, "architecture": None}
+    except (binascii.Error, ValueError):
+        # La chaîne n'est pas hexadécimale, traiter comme une chaîne normale
+        pattern = r'^(.*?)\s*-\s*(.*?)\s*\((.*?)\)$'
+        match = re.match(pattern, package_string)
+
+        if match:
+            name = match.group(1)
+            version = match.group(2)
+            architecture = match.group(3)
+            return {"name": name, "version": version, "architecture": architecture}
+        else:
+            return {"name": package_string, "version": None, "architecture": None}
+
+
+def extract_windows_host_info(input_str):
+    # Expression régulière pour extraire l'architecture matérielle (premier mot après "Hardware:")
+    hardware_architecture_pattern = r'Hardware:\s(\S+)'
+
+    # Expression régulière pour extraire les informations logicielles
+    software_pattern = r'Software:\s(.*?)\sVersion\s(\d+\.\d+).*\(Build\s(\d+)\s.*\)$'
+
+    # Rechercher les correspondances dans la chaîne d'entrée
+    hardware_architecture_match = re.search(hardware_architecture_pattern, input_str, re.IGNORECASE)
+    software_match = re.search(software_pattern, input_str)
+
+    # Extraire l'architecture matérielle
+    hardware_architecture = hardware_architecture_match.group(1).strip() if hardware_architecture_match else None
+
+    # Extraire les informations logicielles
+    software_name = software_match.group(1).strip() if software_match else None
+    software_version = software_match.group(2).strip() if software_match else None
+    software_build = software_match.group(3).strip() if software_match else None
+
+    return {
+        "arch": hardware_architecture,
+        "os_name": software_name,
+        "kernel_version": software_version,
+        "build": software_build
+    }
+
+
+def extract_info_macos(package_string):
+    # Utilisation d'une expression régulière pour extraire le nom et la version sous macOS
+    pattern = r'^(.*?)\s+(\S+)\s*$'
+    match = re.match(pattern, package_string)
+
+    if match:
+        name = match.group(1)
+        version = match.group(2)
+        if '(null)' in version:
+            version = None
+        if '(null)' in name:
+            name = None
+        return {"name": name, "version": version, "arch": None}
+    else:
+        return None
+
+
+async def get_packages_async(hostname, community, os_name):
+    var_bind = '1.3.6.1.2.1.25.6.3.1.2'
+
     def parse_version_append(ver, res, host):
         ver = parse_version(ver)
         d = {
-            "name": raw_name,
+            "name": pkg_info['name'],
             "version": ver,
         }
         res.append(d)
@@ -471,48 +563,62 @@ async def get_packages_async(hostname, community, var_bind):
     result = []
     parsed_values = await parse_snmp_response(iterator, var_bind)
     threads = []
+    extract_fnc = extract_info_windows
+    if os_name == "linux":
+        extract_fnc = extract_info_linux
+    else:
+        extract_fnc = extract_info_macos
+
     for value in parsed_values:
-        raw_name, raw_version, raw_arch = value.prettyPrint().split("_")
-        thread = threading.Thread(target=parse_version_append,
-                                  args=(raw_version, result, hostname))
-        thread.start()
-        threads.append(thread)
+        pretty_value = value.prettyPrint()
+        pkg_info = extract_fnc(pretty_value)
+        print(pkg_info)
+        if pkg_info:
+            thread = threading.Thread(target=parse_version_append,
+                                      args=(pkg_info['version'], result, hostname))
+            thread.start()
+            threads.append(thread)
 
     for thread in threads:
         thread.join()
     return result
 
 
-async def get_host_info_async(hostname, community, var_bind):
-    iterator = await snmp_get_query_v2(var_bind=var_bind, hostname=hostname, community=community)
+async def get_host_info_async(hostname, community):
+    var_binds = {
+        'sys_hostname_bind': '1.3.6.1.2.1.1.5.0',
+        'sys_descr_bind': '1.3.6.1.2.1.1.1.0'
+    }
     result = {}
-    parsed_values = await parse_snmp_response(iterator, var_bind)
-    for value in parsed_values:
-        value = value.prettyPrint()
-        lower_value = value.lower()
-        if "windows" in lower_value:
-            partitioned = value.split()
-            if partitioned:
-                result["os_name"] = partitioned[0]
-                result["host_name"] = partitioned[1]
-                result["kernel_version"] = partitioned[2]
-                result["arch"] = partitioned[-1]
-        elif "darwin" in lower_value:
-            partitioned = value.split()
-            if partitioned:
-                result["os_name"] = partitioned[0]
-                result["host_name"] = partitioned[1]
-                result["kernel_version"] = partitioned[2]
-                result["arch"] = partitioned[-1]
-        elif "linux" in lower_value:
-            partitioned = value.split()
-            if partitioned:
-                result["os_name"] = partitioned[0]
-                result["host_name"] = partitioned[1]
-                result["kernel_version"] = partitioned[2]
-                result["arch"] = partitioned[-1]
-        else:
-            print("Cannot parse host informations.")
+    for var_bind_name, var_bind_value in var_binds.items():
+        iterator = await snmp_get_query_v2(var_bind=var_bind_value, hostname=hostname, community=community)
+        parsed_values = await parse_snmp_response(iterator, var_bind_value)
+        for value in parsed_values:
+            value = value.prettyPrint()
+            lower_value = value.lower()
+            if var_bind_name == 'sys_hostname_bind':
+                result["host_name"] = value
+            elif var_bind_name == 'sys_descr_bind':
+                if "windows" in lower_value:
+                    info = extract_windows_host_info(value)
+                    result["os_name"] = info.get("os_name")
+                    result["kernel_version"] = info.get("kernel_version")
+                    result["arch"] = info.get("arch")
+                    result["build"] = info.get("build")
+                elif "darwin" in lower_value:
+                    partitioned = value.split()
+                    if partitioned:
+                        result["os_name"] = partitioned[0]
+                        result["kernel_version"] = partitioned[2]
+                        result["arch"] = partitioned[-1]
+                elif "linux" in lower_value:
+                    partitioned = value.split()
+                    if partitioned:
+                        result["os_name"] = partitioned[0]
+                        result["kernel_version"] = partitioned[2]
+                        result["arch"] = partitioned[-1]
+                else:
+                    print("Cannot parse unix based host informations.")
     return result
 
 
@@ -635,18 +741,16 @@ def get_snmp_hosts(network):
 
 async def getting_stacks_by_host_snmp(active_hosts, community):
     print(f"getting_stacks_by_host_snmp {active_hosts}")
-    sys_info_bind = '1.3.6.1.2.1.1.1.0'
-    installed_packages_bind = '1.3.6.1.2.1.25.6.3.1.2'
     hosts_report = {}
     for host in active_hosts:
         start = time.perf_counter()
-        packages = await get_packages_async(host, community, installed_packages_bind)
+        os_info = await get_host_info_async(host, community)
         end = time.perf_counter()
-        print(f"getting packages took: {(end-start)/60:.2f} minutes")
+        print(f"getting host infos took: {(end - start) / 60:.2f} minutes")
         start = time.perf_counter()
-        os_info = await get_host_info_async(host, community, sys_info_bind)
+        packages = await get_packages_async(host, community, os_name=os_info.get('os_name').lower())
         end = time.perf_counter()
-        print(f"getting host infos took: {(end-start)/60:.2f} minutes")
+        print(f"getting packages took: {(end - start) / 60:.2f} minutes")
 
         # print(os_info)
         # print(packages)
@@ -759,14 +863,14 @@ def get_host_packages(command, host_os, file, container):
                         packages_versions.append(
                             {
                                 "name": package_name,
-                                "version":package_version
+                                "version": package_version
                             }
                         )
                     else:
                         packages_versions.append(
                             {
                                 "name": package,
-                                "version":None
+                                "version": None
                             }
                         )
                 else:
@@ -1239,6 +1343,10 @@ def run_network(community, device, client_id, secret_key):
         # target_host = get_public_ip(device)
         # hosts = get_snmp_hosts(device)
         hosts = ["209.97.189.19"]
+        # hosts = ["192.168.100.161"]
+        # hosts = ["192.168.100.248"]
+        # hosts = ["192.168.100.18"]
+        # hosts = ["192.168.100.131"]
         report = asyncio.run(getting_stacks_by_host_snmp(hosts, community))
 
         with open("___", "w+") as file:
