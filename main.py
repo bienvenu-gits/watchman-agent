@@ -477,7 +477,6 @@ def extract_info_windows(package_string):
     try:
         # Essayer de décoder la chaîne hexadécimale
         decoded_string = binascii.unhexlify(package_string[2:]).decode('latin-1')
-        print(decoded_string)
 
         # Utilisation d'une expression régulière pour extraire le nom, la version et l'architecture sous Windows
         pattern = r'^(.*?)\s*-\s*(.*?)\s*\((.*?)\)$'
