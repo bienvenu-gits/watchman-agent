@@ -571,7 +571,6 @@ async def get_packages_async(hostname, community, os_name):
     for value in parsed_values:
         pretty_value = value.prettyPrint()
         pkg_info = extract_fnc(pretty_value)
-        print(pkg_info)
         if pkg_info:
             thread = threading.Thread(target=parse_version_append,
                                       args=(pkg_info['version'], result, hostname))
@@ -631,9 +630,11 @@ async def parse_snmp_response(iterator, var_bind):
 
     def threaded_iterator(indication, status, binds, stop, res, var_b):
         if indication:
-            print(f"SNMP GET request failed: {indication}")
+            pass
+            # print(f"SNMP GET request failed: {indication}")
         elif status:
-            print(f"SNMP GET request returned an error: {status}")
+            pass
+            # print(f"SNMP GET request returned an error: {status}")
         else:
             sub_threads = []
             # Print the retrieved values
@@ -744,20 +745,21 @@ async def getting_stacks_by_host_snmp(active_hosts, community):
     for host in active_hosts:
         start = time.perf_counter()
         os_info = await get_host_info_async(host, community)
+        print(os_info)
         end = time.perf_counter()
         print(f"getting host infos took: {(end - start) / 60:.2f} minutes")
-        start = time.perf_counter()
-        packages = await get_packages_async(host, community, os_name=os_info.get('os_name').lower())
-        end = time.perf_counter()
-        print(f"getting packages took: {(end - start) / 60:.2f} minutes")
-
-        # print(os_info)
-        # print(packages)
-        hosts_report[host] = {
-            "os": os_info,
-            "ipv4": host,
-            "packages": packages
-        }
+        if os_info:
+            start = time.perf_counter()
+            packages = await get_packages_async(host, community, os_name=os_info.get('os_name').lower())
+            end = time.perf_counter()
+            print(f"getting packages took: {(end - start) / 60:.2f} minutes")
+            # print(os_info)
+            # print(packages)
+            hosts_report[host] = {
+                "os": os_info,
+                "ipv4": host,
+                "packages": packages
+            }
 
         # print(f"out hosts_report {hosts_report}")
     return json.dumps(hosts_report)
@@ -1340,8 +1342,8 @@ def run_network(community, device, client_id, secret_key):
     else:
         print(f"RUN NETWORK")
         # target_host = get_public_ip(device)
-        # hosts = get_snmp_hosts(device)
-        hosts = ["209.97.189.19"]
+        hosts = get_snmp_hosts(device)
+        # hosts = ["209.97.189.19"]
         # hosts = ["192.168.100.161"]
         # hosts = ["192.168.100.248"]
         # hosts = ["192.168.100.18"]
