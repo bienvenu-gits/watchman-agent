@@ -1093,7 +1093,7 @@ def format_json_report(client_id, client_secret, file):
                 "data": json.dumps(file_content)
             }
         )
-        print(f"response {response}")
+        print(f"response body: {response.json()}")
         print(f"response {response.status_code}")
         if response.status_code != 200:
             click.echo("\nExecution error️")
