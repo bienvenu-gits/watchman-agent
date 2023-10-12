@@ -293,28 +293,6 @@ def is_ip_active(ip, all_active=False):
             return False
 
 
-# def is_ip_active(ip, all_active=False):
-#     try:
-#         # Exécutez la commande de ping
-#         result = subprocess.run(['ping', '-c', '1', '-w', '5', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-#                                 text=True)
-#         # Vérifiez le code de retour pour déterminer si le ping a réussi
-#         if result.returncode == 0:
-#             # Le ping a réussi, l'adresse IP est active
-#             return True
-#         else:
-#             # Le ping a échoué, l'adresse IP est inactive
-#             if all_active:
-#                 # On considère tous les hosts comme active
-#                 return True
-#             else:
-#                 return False
-#     except Exception as e:
-#         print(e)
-#         # Une erreur s'est produite, l'adresse IP est probablement inactive
-#         return False
-
-
 linux_version_pattern = re.compile(
     r"^"
     # epoch must start with a digit
@@ -420,8 +398,6 @@ def parse_version(text):
             else:
                 if not regex_matched:
                     print(f'Cannot definitely parse version {text}')
-
-            # print(f"Final parsed version: {version}")
             return version
 
 
@@ -453,6 +429,29 @@ def scan_snmp_and_append(ip, snmp_port, active_hosts):
     if len(scan_result) > 0:
         active_hosts.add(ip)
     return active_hosts
+
+
+def reformatting_version(version):
+    patterns = [
+        r'(\d+\.\d+\.\d+)',
+        r'(\d+\.\d+\.\d+)[^\d]*(\d+)',
+        r'(\d+\.\d+)[^\d]*(\d+)',
+        r'(\d+(\.\d+)*)',
+        r'(\b(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b)',
+        r'(\b(\d+\.\d+\.\d+-\d+\.\w+)\b)',
+        r'(\b(\d+)\b)',
+        r'(\b(\d+(?:\.\d+)+)\b)',
+        r'(\b([a-zA-Z]*\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b)',
+        r'(\b(\d{4}-\d{2}-\d{2})\b)',
+        r'\b(\d+\.\d+\.\d+[-\w]*)\b',
+        r'\b(\d+\.\d+\.\d+-\d+\.\w+)\b',
+        r'\b[vV]?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b',
+        r'==(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)$'
+    ]
+    # Define a regex pattern to match the version (digits and dots)
+    for pattern in patterns:
+        # Use re.search to find the first match in the input string
+        match = re.search(pattern, version)
 
 
 def coroutine_wrapper(coroutine):
@@ -631,13 +630,10 @@ async def parse_snmp_response(iterator, var_bind):
     def threaded_iterator(indication, status, binds, stop, res, var_b):
         if indication:
             pass
-            # print(f"SNMP GET request failed: {indication}")
         elif status:
             pass
-            # print(f"SNMP GET request returned an error: {status}")
         else:
             sub_threads = []
-            # Print the retrieved values
             for bind in binds:
                 th = threading.Thread(target=sub_thread_iter, args=(bind, var_b, res, stop))
                 th.start()
@@ -699,7 +695,6 @@ async def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_p
 
 
 def scan_up_host_and_append(ip, active_hosts):
-    print(f"Scanning open host {ip}...")
     active = is_ip_active(ip=ip, all_active=True)
     if active:
         active_hosts.add(ip)
@@ -707,7 +702,6 @@ def scan_up_host_and_append(ip, active_hosts):
 
 
 def get_snmp_hosts(network):
-    print(f"Target network {network}")
     cfg = Configuration()
     config = cfg.create(config_file_path='config.yml')
     active_hosts = set()
@@ -740,22 +734,16 @@ def get_snmp_hosts(network):
 
 
 async def getting_stacks_by_host_snmp(active_hosts, community):
-    print(f"getting_stacks_by_host_snmp {active_hosts}")
     hosts_report = {}
     for host in active_hosts:
         try:
             start = time.perf_counter()
             os_info = await get_host_info_async(host, community)
-            print(os_info)
             end = time.perf_counter()
-            print(f"getting host infos took: {(end - start) / 60:.2f} minutes")
             if os_info:
                 start = time.perf_counter()
                 packages = await get_packages_async(host, community, os_name=os_info.get('os_name').lower())
                 end = time.perf_counter()
-                print(f"getting packages took: {(end - start) / 60:.2f} minutes")
-                # print(os_info)
-                # print(packages)
                 hosts_report[host] = {
                     "os": os_info,
                     "ipv4": host,
@@ -763,8 +751,6 @@ async def getting_stacks_by_host_snmp(active_hosts, community):
                 }
         except:
             pass
-
-        # print(f"out hosts_report {hosts_report}")
     return json.dumps(hosts_report)
 
 
@@ -837,9 +823,10 @@ def get_host_packages(command, host_os, file, container):
             try:
 
                 if el[-1][0].isdigit() and el[-1][-1].isdigit():
+                    version = reformatting_version(el[-1])
                     p_v = {
                         "name": " ".join(el[:-1]),
-                        "version": el[-1]
+                        "version": version
                     }
                     if p_v["name"] != "":
                         packages_versions.append(p_v)
@@ -962,9 +949,11 @@ def format_pkg_version(command1_output, host_os):
                 p_v = pkg_version.split('^^')
 
                 if p_v[1][0].isdigit():
+                    version = reformatting_version(p_v[1])
+                    name = p_v[0].split(":")
                     tab.append({
-                        "name": p_v[0],
-                        "version": p_v[1]
+                        "name": name[0],
+                        "version": version
                     })
             except:
                 pass
@@ -980,6 +969,8 @@ def format_pkg_version(command1_output, host_os):
 
                 name = "-".join(p_v[:-2])
                 version = "-".join(p_v[-2:])
+
+                version = reformatting_version(version)
 
                 tab.append({
                     "name": name,
