@@ -1299,7 +1299,10 @@ def run_network(community, device, client_id, secret_key):
         custom_exit("Execution error: the snmp community is not specified.\n")
     else:
         # target_host = get_public_ip(device)
-        hosts = get_snmp_hosts(device)
+        try:
+            hosts = get_snmp_hosts(device)
+        except Exception as e:
+            custom_exit(f"Execution error: {e}")
         # hosts = ["209.97.189.19"]
         # hosts = ["192.168.100.161"]
         # hosts = ["192.168.100.248"]
