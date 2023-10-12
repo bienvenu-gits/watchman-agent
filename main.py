@@ -743,23 +743,26 @@ async def getting_stacks_by_host_snmp(active_hosts, community):
     print(f"getting_stacks_by_host_snmp {active_hosts}")
     hosts_report = {}
     for host in active_hosts:
-        start = time.perf_counter()
-        os_info = await get_host_info_async(host, community)
-        print(os_info)
-        end = time.perf_counter()
-        print(f"getting host infos took: {(end - start) / 60:.2f} minutes")
-        if os_info:
+        try:
             start = time.perf_counter()
-            packages = await get_packages_async(host, community, os_name=os_info.get('os_name').lower())
+            os_info = await get_host_info_async(host, community)
+            print(os_info)
             end = time.perf_counter()
-            print(f"getting packages took: {(end - start) / 60:.2f} minutes")
-            # print(os_info)
-            # print(packages)
-            hosts_report[host] = {
-                "os": os_info,
-                "ipv4": host,
-                "packages": packages
-            }
+            print(f"getting host infos took: {(end - start) / 60:.2f} minutes")
+            if os_info:
+                start = time.perf_counter()
+                packages = await get_packages_async(host, community, os_name=os_info.get('os_name').lower())
+                end = time.perf_counter()
+                print(f"getting packages took: {(end - start) / 60:.2f} minutes")
+                # print(os_info)
+                # print(packages)
+                hosts_report[host] = {
+                    "os": os_info,
+                    "ipv4": host,
+                    "packages": packages
+                }
+        except:
+            pass
 
         # print(f"out hosts_report {hosts_report}")
     return json.dumps(hosts_report)
@@ -1080,11 +1083,7 @@ def format_json_report(client_id, client_secret, file):
 
     file_content = re.sub('\'', '"', file_content)
 
-    with open(file, "w+") as file_in_write_mode:
-        file_in_write_mode.write("")
-
     try:
-        print(f"file_content {file_content}")
         response = requests.post(
             url=WEBHOOK_URL,
             headers={
@@ -1095,11 +1094,13 @@ def format_json_report(client_id, client_secret, file):
                 "data": json.dumps(file_content)
             }
         )
-        print(f"response body: {response.json()}")
-        print(f"response {response.status_code}")
         if response.status_code != 200:
             click.echo("\nExecution error️")
             click.echo("Message: ", response.json()["detail"])
+        
+
+        with open(file, "w+") as file_in_write_mode:
+            file_in_write_mode.write("")
     except requests.exceptions.RequestException as e:
         print(f"error on request {e}")
         request_error(error=e)
@@ -1122,7 +1123,6 @@ def get_public_ip(host_address):
     try:
         # Use socket.gethostbyname to retrieve the IP address
         ip_address = socket.gethostbyname(host_address)
-        print(f"ip_address {ip_address}")
         return ip_address
     except socket.gaierror as error:
         print(f"error {error}")
@@ -1131,10 +1131,8 @@ def get_public_ip(host_address):
 
 def get_remote_os_with_snmp(active_hosts):
     try:
-        print(f"get_remote_os_with_snmp {active_hosts}")
 
         hosts_report = []
-        # demo.pysnmp.com
         config = read_config()
 
         network_conf = config.get('network', {})
@@ -1151,9 +1149,6 @@ def get_remote_os_with_snmp(active_hosts):
         # SNMPv3 engine ID (usually empty for most devices)
 
         target_port = network_snmp_conf.get('port', 161)  # Default SNMP port
-        print(f"snmp_user {snmp_user}")
-        print(f"snmp_auth_key {snmp_auth_key}")
-        print(f"snmp_priv_key {snmp_priv_key}")
 
         # Create SNMPv3 security settings
         security_parameters = UsmUserData(
@@ -1169,15 +1164,9 @@ def get_remote_os_with_snmp(active_hosts):
         # Create SNMPv3 context
         context = ContextData()
 
-        print(f"get_remote_os_with_snmp {active_hosts}")
         for host in active_hosts:
-            print(f"host {host}")
             # SNMPv3 target
             target_host = get_public_ip(host)
-            print(f"target_host {target_host}")
-            print(f"security_parameters {security_parameters}")
-            print(f"target_port {target_port}")
-            print(f"context {context}")
             # Create SNMP request
             try:
                 # get_request = getCmd(
@@ -1190,14 +1179,10 @@ def get_remote_os_with_snmp(active_hosts):
                 stacks = []
                 command_output = subprocess.getstatusoutput(
                     f"snmpget -v3  -l authPriv -u {snmp_user} -a SHA -A {snmp_auth_key} -x AES -X {snmp_priv_key} {host} 1.3.6.1.2.1.25.6.3.1.2")
-                print(f"command_output {command_output}")
+                
                 if command_output[0] == 0:
-                    print(f"command_output[0]")
                     mibs = command_output[1].split('\n')
-                    print(f"mibs {mibs}")
                     for mib in mibs:
-
-                        print(f"mib {mib}")
                         try:
                             stack = mib.split('"')[1]
                             versions_info = stack.split("-")[-2:]
@@ -1246,24 +1231,6 @@ def get_remote_os_with_snmp(active_hosts):
                 })
 
                 return hosts_report
-                # get_request = getCmd(SnmpEngine(),
-                #   CommunityData('public'),
-                #   UdpTransportTarget(('demo.pysnmp.com', 161)),
-                #   ContextData(),
-                #   ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0)))
-                # print(f"get_request {get_request}")
-                # for i in get_request:
-                #     print(f"i {i}")
-
-                # # Execute SNMP request and print results
-                # error_indication, error_status, error_index, var_binds = next(get_request)
-
-                # if error_indication:
-                #     print(f"Error: {error_indication}")
-                # else:
-                #     print("SNMP response:")
-                #     for var_bind in var_binds:
-                #         print(f"{var_bind[0]}\n{var_bind[1]}\n")
             except Exception as e:
                 print(e)
 
@@ -1319,7 +1286,7 @@ def run_not_network(client_id, secret_key):
     """
         By cmd execution
     """
-    with open("__", "w+") as file:
+    with open("data", "w+") as file:
         # write the opening bracket of the json object
         file.writelines(["{"])
 
@@ -1330,7 +1297,7 @@ def run_not_network(client_id, secret_key):
         file.writelines([" ] } } "])
 
     file.close()
-    format_json_report(client_id, secret_key, "__")
+    format_json_report(client_id, secret_key, "data")
 
 
 def run_network(community, device, client_id, secret_key):
@@ -1340,7 +1307,6 @@ def run_network(community, device, client_id, secret_key):
     if community is None:
         custom_exit("Execution error: the snmp community is not specified.\n")
     else:
-        print(f"RUN NETWORK")
         # target_host = get_public_ip(device)
         hosts = get_snmp_hosts(device)
         # hosts = ["209.97.189.19"]
@@ -1350,10 +1316,10 @@ def run_network(community, device, client_id, secret_key):
         # hosts = ["192.168.100.131"]
         report = asyncio.run(getting_stacks_by_host_snmp(hosts, community))
 
-        with open("___", "w+") as file:
+        with open("data", "w+") as file:
             file.write("%s" % report)
         file.close()
-        format_json_report(client_id, secret_key, "___")
+        format_json_report(client_id, secret_key, "data")
 
 
 def scan_network(ip, mask, port):

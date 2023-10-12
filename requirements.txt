@@ -13,3 +13,4 @@ paramiko
 pyyaml
 schedule
 pysnmplib==5.0.21
+semver
