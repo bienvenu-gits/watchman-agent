@@ -1449,6 +1449,8 @@ def run():
     mode = config.get_value('runtime', 'mode', default='network')
     client_id = config.get_value('runtime', 'client_id')
     secret_key = config.get_value('runtime', 'secret_key')
+    if None in [mode, client_id, secret_key]:
+        click.echo("\nPlease configure agent! Check help to see how to configure.")
 
     community = config.get_value('network', 'snmp', 'v2', 'community', default='public')
     network = config.get_value('network', 'ip')
