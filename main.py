@@ -29,6 +29,8 @@ from packaging import version as pkg_version
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+configFile = "config.yml"
+
 """
     Fetch Variables environment
 """
@@ -89,10 +91,10 @@ class IpType(click.ParamType):
 
     def convert(self, value, param, ctx):
         try:
-            ip = ipaddress.ip_network(value)
+            ipaddress.ip_network(value)
         except:
             try:
-                ip = ipaddress.ip_address(value)
+                ipaddress.ip_address(value)
             except ValueError as e:
                 print('failed')
                 self.fail(
@@ -149,7 +151,7 @@ class YamlFileConfiguration:
 
     def __new__(cls, config_file_path=None):
         if not config_file_path:
-            config_file_path = 'config.yml'
+            config_file_path = configFile
 
         if cls._instance is None:
             cls._instance = super(YamlFileConfiguration, cls).__new__(cls)
@@ -192,7 +194,7 @@ class YamlFileConfiguration:
                 yaml.dump(old_config, yaml_file, default_flow_style=False)
             print(f"Configs successfully updated in '{yaml_file}'.")
         except yaml.YAMLError as e:
-            print(f"Cannot update config file.")
+            print(f"Cannot update config file. {e}")
 
     def save_config_to_file(self):
         if self.config and self.config_file_path:
@@ -202,7 +204,7 @@ class YamlFileConfiguration:
 
 class Configuration:
     @staticmethod
-    def create(config_file_path='config.yml'):
+    def create(config_file_path=configFile):
         if config_file_path and config_file_path.endswith('.yml'):
             return YamlFileConfiguration(config_file_path)
         else:
@@ -451,7 +453,7 @@ def reformatting_version(version):
     # Define a regex pattern to match the version (digits and dots)
     for pattern in patterns:
         # Use re.search to find the first match in the input string
-        match = re.search(pattern, version)
+        re.search(pattern, version)
 
 
 def coroutine_wrapper(coroutine):
@@ -703,7 +705,7 @@ def scan_up_host_and_append(ip, active_hosts):
 
 def get_snmp_hosts(network):
     cfg = Configuration()
-    config = cfg.create(config_file_path='config.yml')
+    config = cfg.create(config_file_path=configFile)
     active_hosts = set()
     cidr = config.get_value('network', 'cidr', default=24)
     snmp_port = config.get_value('network', 'snmp', 'port', default=161)
@@ -1231,7 +1233,7 @@ def get_remote_os_with_snmp(active_hosts):
 
 def read_config(config_file: str = None):
     if not config_file:
-        file_name = 'config.yml'
+        file_name = configFile
     else:
         file_name = config_file
 
@@ -1243,10 +1245,8 @@ def read_config(config_file: str = None):
         print(f"Config file '{file_name}' not found.")
         return None
     except Exception as e:
-        print(f"Cannot read config file '{file_name}'")
+        print(f"Cannot read config file {file_name}. This is error {e}")
         return None
-    # if 'schedule' in loaded_config_data and 'hour_range' in loaded_config_data['schedule']:
-    #     hour_range_value = loaded_config_data['schedule']['hour_range']
 
 
 def update_config_with_nested(config, updated_config):
@@ -1270,7 +1270,7 @@ def update_config(file_name, loaded_config_data, new_config):
             yaml.dump(loaded_config_data, fichier, default_flow_style=False)
         print(f"Configs successfully written in '{file_name}'.")
     except yaml.YAMLError as e:
-        print(f"Cannot write config file.")
+        print(f"Cannot write config file. {e}")
 
 
 def run_not_network(client_id, secret_key):
@@ -1346,7 +1346,7 @@ def configure():
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
 def configure_connect(mode, client_id, client_secret):
     cfg = Configuration()
-    config = cfg.create(config_file_path='config.yml')
+    config = cfg.create(config_file_path=configFile)
     section = 'runtime'
 
     if mode:
@@ -1374,7 +1374,7 @@ def configure_connect(mode, client_id, client_secret):
                                                "192.168.1.12,", required=False)
 def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, snmp_auth_key, snmp_priv_key, snmp_user):
     cfg = Configuration()
-    config = cfg.create(config_file_path='config.yml')
+    config = cfg.create(config_file_path=configFile)
     section = 'network'
     if snmp_community:
         config.set_value(section, 'snmp', 'v2', 'community', value=snmp_community)
@@ -1417,7 +1417,7 @@ def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, s
 @click.option("-mo", "--month", type=int, help="Execution every month.", required=False)
 def configure_schedule(minute, hour, day, month):
     cfg = Configuration()
-    config = cfg.create(config_file_path='config.yml')
+    config = cfg.create(config_file_path=configFile)
     section = 'schedule'
 
     if minute:
@@ -1444,7 +1444,7 @@ def configure_schedule(minute, hour, day, month):
 @cli.command(name='run', help='Attach monitoring to cron job and watch for stacks')
 def run():
     cfg = Configuration()
-    config = cfg.create(config_file_path='config.yml')
+    config = cfg.create(config_file_path=configFile)
 
     mode = config.get_value('runtime', 'mode', default='network')
     client_id = config.get_value('runtime', 'client_id')
