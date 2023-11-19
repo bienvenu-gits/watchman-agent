@@ -12,15 +12,19 @@ from crontab import CronTab
 from keyring.errors import NoKeyringError
 from sqlitedict import SqliteDict
 
+from watchman_agent.commands.__configure__ import Configuration
+
 watchmanAgentDb = "watchmanAgent.db"
 configYml = "config.yml"
+
 
 class WatchmanCLI(click.Group):
     def resolve_command(self, ctx, args):
         if not args and not ctx.protected_args:
             args = ['default']
         return super(WatchmanCLI, self).resolve_command(ctx, args)
-    
+
+
 class KeyDB(object):
     def __init__(self, table_name, db, mode="read"):
         self.__db_object = None
@@ -51,6 +55,7 @@ class KeyDB(object):
     def __exit__(self, type, val, tb):
         self.__db_object.close()
 
+
 class IpType(click.ParamType):
     name = "ip"
 
@@ -68,19 +73,6 @@ class IpType(click.ParamType):
                     ctx,
                 )
         return value
-          
-def update_config_with_nested(config, updated_config):
-    if config:
-        for key, value in updated_config.items():
-            if key in config and isinstance(config[key], dict) and isinstance(value, dict):
-                # Recursively update nested dictionaries
-                update_config_with_nested(config[key], value)
-            elif key in config and isinstance(config[key], list) and isinstance(value, list):
-                # Extend existing lists with new values
-                config[key].extend(value)
-            else:
-                # Update or add a new key-value pair
-                config[key] = value
 
 
 def first_run():
@@ -139,9 +131,11 @@ class CronJob:
 def cli():
     pass
 
+
 @cli.group(name="configure", help='Save configuration variables to the config file')
 def configure():
     pass
+
 
 @configure.command(name="connect", help='Save connect configuration variables')
 @click.option("-m", "--mode", type=str, default='network',
@@ -149,18 +143,7 @@ def configure():
 @click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
 def configure_connect(mode, client_id, client_secret):
-    cfg = Configuration()
-    config = cfg.create(config_file_path=configYml)
-    section = 'runtime'
-
-    if mode:
-        config.set_value(section, 'mode', value=mode)
-
-    if client_id:
-        config.set_value(section, 'client_id', value=client_id)
-
-    if client_secret:
-        config.set_value(section, 'secret_key', value=client_secret)
+    pass
 
 
 @configure.command(name="network", help='Save network configuration variables')
@@ -177,41 +160,7 @@ def configure_connect(mode, client_id, client_secret):
 @click.option("-e", "--exempt", type=str, help="Device list to ignore when getting stacks. eg: --exempt "
                                                "192.168.1.12,", required=False)
 def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, snmp_auth_key, snmp_priv_key, snmp_user):
-    cfg = Configuration()
-    config = cfg.create(config_file_path=configYml)
-    section = 'network'
-    if snmp_community:
-        config.set_value(section, 'snmp', 'v2', 'community', value=snmp_community)
-
-    if snmp_user:
-        config.set_value(section, 'snmp', 'v3', 'user', value=snmp_user)
-
-    if snmp_auth_key:
-        config.set_value(section, 'snmp', 'v3', 'auth_key', value=snmp_auth_key)
-
-    if snmp_priv_key:
-        config.set_value(section, 'snmp', 'v3', 'priv_key', value=snmp_priv_key)
-
-    if exempt:
-        exempt = [w for w in str(exempt).strip().split(',') if w != ""]
-        cfg_exempt = config.get_value(section, 'exempt', default=[])
-        if cfg_exempt:
-            cfg_exempt.extend(exempt)
-        else:
-            cfg_exempt = exempt
-
-        config.set_value(section, 'exempt', value=list(set(cfg_exempt)))
-
-    if snmp_port:
-        config.set_value(section, 'snmp', 'port', value=snmp_port)
-        # config.set_value(section, 'snmp', 'v2', 'port', value=snmp_port)
-        # config.set_value(section, 'snmp', 'v3', 'port', value=snmp_port)
-
-    if network_target:
-        config.set_value(section, 'ip', value=network_target)
-
-    if cidr:
-        config.set_value(section, 'cidr', value=cidr)
+    pass
 
 
 @configure.command(name="schedule", help='Save schedule configuration variables')
@@ -220,29 +169,7 @@ def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, s
 @click.option("-d", "--day", type=int, help="Execution every day.", required=False)
 @click.option("-mo", "--month", type=int, help="Execution every month.", required=False)
 def configure_schedule(minute, hour, day, month):
-    cfg = Configuration()
-    config = cfg.create(config_file_path=configYml)
-    section = 'schedule'
-
-    if minute:
-        config.set_value(section, 'minute', value=minute)
-    else:
-        config.set_value(section, 'minute', value=15)
-
-    if hour:
-        config.set_value(section, 'hour', value=hour)
-    else:
-        config.set_value(section, 'hour', value='*')
-
-    if day:
-        config.set_value(section, 'day', value=day)
-    else:
-        config.set_value(section, 'day', value='*')
-
-    if month:
-        config.set_value(section, 'month', value=month)
-    else:
-        config.set_value(section, 'month', value='*')
+    pass
 
 
 @cli.command(name='run', help='Attach monitoring to cron job and watch for stacks')
@@ -314,7 +241,7 @@ def run():
         else:
             env_path = str(Path(__file__).resolve().parent) + "/commands/dist/.env"
             os.system(str(Path(__file__).resolve().parent) +
-                          "/commands/dist/main run")
+                      "/commands/dist/main run")
 
 
 cli.add_command(configure_connect)
