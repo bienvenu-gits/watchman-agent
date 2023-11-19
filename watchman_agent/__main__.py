@@ -12,6 +12,8 @@ from crontab import CronTab
 from keyring.errors import NoKeyringError
 from sqlitedict import SqliteDict
 
+watchmanAgentDb = "watchmanAgent.db"
+configYml = "config.yml"
 
 class WatchmanCLI(click.Group):
     def resolve_command(self, ctx, args):
@@ -125,7 +127,7 @@ class YamlFileConfiguration:
 
     def __new__(cls, config_file_path=None):
         if not config_file_path:
-            config_file_path = 'config.yml'
+            config_file_path = configYml
 
         if cls._instance is None:
             cls._instance = super(YamlFileConfiguration, cls).__new__(cls)
@@ -168,7 +170,7 @@ class YamlFileConfiguration:
                 yaml.dump(old_config, yaml_file, default_flow_style=False)
             print(f"Configs successfully updated in '{yaml_file}'.")
         except yaml.YAMLError as e:
-            print(f"Cannot update config file.")
+            print("Cannot update config file.")
 
     def save_config_to_file(self):
         if self.config and self.config_file_path:
@@ -178,7 +180,7 @@ class YamlFileConfiguration:
 
 class Configuration:
     @staticmethod
-    def create(config_file_path='config.yml'):
+    def create(config_file_path=configYml):
         if config_file_path and config_file_path.endswith('.yml'):
             return YamlFileConfiguration(config_file_path)
         else:
@@ -194,7 +196,7 @@ def first_run():
             return True
     except NoKeyringError:
         # use db method
-        obj = KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db")
+        obj = KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + watchmanAgentDb)
         if obj.read_value("first_run") is None:
             return True
         else:
@@ -234,9 +236,9 @@ class CronJob:
         return self._jobs
 
 
-@click.group()
-def cli() -> None:
-    pass
+# @click.group()
+# def cli() -> None:
+#     pass
 
 @click.command(cls=WatchmanCLI)
 def cli():
@@ -253,7 +255,7 @@ def configure():
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
 def configure_connect(mode, client_id, client_secret):
     cfg = Configuration()
-    config = cfg.create(config_file_path='config.yml')
+    config = cfg.create(config_file_path=configYml)
     section = 'runtime'
 
     if mode:
@@ -281,7 +283,7 @@ def configure_connect(mode, client_id, client_secret):
                                                "192.168.1.12,", required=False)
 def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, snmp_auth_key, snmp_priv_key, snmp_user):
     cfg = Configuration()
-    config = cfg.create(config_file_path='config.yml')
+    config = cfg.create(config_file_path=configYml)
     section = 'network'
     if snmp_community:
         config.set_value(section, 'snmp', 'v2', 'community', value=snmp_community)
@@ -324,7 +326,7 @@ def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, s
 @click.option("-mo", "--month", type=int, help="Execution every month.", required=False)
 def configure_schedule(minute, hour, day, month):
     cfg = Configuration()
-    config = cfg.create(config_file_path='config.yml')
+    config = cfg.create(config_file_path=configYml)
     section = 'schedule'
 
     if minute:
@@ -350,9 +352,8 @@ def configure_schedule(minute, hour, day, month):
 
 @cli.command(name='run', help='Attach monitoring to cron job and watch for stacks')
 def run():
-# def connect(network_mode, client_id, secret_key, community, ip_network, device):
     cfg = Configuration()
-    config = cfg.create(config_file_path='config.yml')
+    config = cfg.create(config_file_path=configYml)
 
     network_mode = config.get_value('runtime', 'mode', default='network')
     client_id = config.get_value('runtime', 'client_id')
@@ -363,10 +364,10 @@ def run():
     community = config.get_value('network', 'snmp', 'v2', 'community', default='public')
     ip_network = config.get_value('network', 'ip')
     target_address = ip_network
-    with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db") as r_obj:
+    with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + watchmanAgentDb) as r_obj:
         read_obj = r_obj
     with KeyDB(table_name="watchmanAgent",
-               db=str(Path(__file__).resolve().parent) + "watchmanAgent.db", mode="write") as w_obj:
+               db=str(Path(__file__).resolve().parent) + watchmanAgentDb, mode="write") as w_obj:
         write_obj = w_obj
 
     if first_run():
@@ -383,61 +384,42 @@ def run():
             if not network_mode:
                 os.system(
                     str(Path(
-                        __file__).resolve().parent) + f"\commands\dist\main.exe {client_id} {secret_key} {env_path}")
+                        __file__).resolve().parent) + "\commands\dist\main.exe run")
                 cron = CronJob()
                 cron.new_job(command=f"watchman-agent connect {client_id} {secret_key}", comment="agentRunFirst")
             else:
                 os.system(str(Path(__file__).resolve().parent) +
-                          f"\commands\dist\main.exe --network-mode -c {community} -d {target_address} {client_id} {secret_key} {env_path}")
+                          "\commands\dist\main.exe run")
 
                 cron = CronJob()
                 cron.new_job(
-                    command=f"watchman-agent connect --network-mode -c {community} -d {target_address} {client_id} {secret_key}",
+                    command="watchman-agent run",
                     comment="agentRun")
         else:
             env_path = str(Path(__file__).resolve().parent) + "/commands/dist/.env"
 
             if not network_mode:
                 os.system(
-                    str(Path(__file__).resolve().parent) + f"/commands/dist/main {client_id} {secret_key} {env_path}")
+                    str(Path(__file__).resolve().parent) + "/commands/dist/main run")
                 cron = CronJob()
                 cron.new_job(
                     command=f"watchman-agent connect {client_id} {secret_key}", comment="agentRun")
             else:
                 os.system(str(Path(__file__).resolve().parent) +
-                          f"/commands/dist/main --network-mode -c {community} -d {target_address} {client_id} {secret_key} {env_path}")
+                          "/commands/dist/main run")
                 cron = CronJob()
                 cron.new_job(
-                    command=f"watchman-agent connect --network-mode -c {community} -d {target_address} {client_id} {secret_key}",
+                    command="watchman-agent run",
                     comment="agentRun")
     else:
-        try:
-            stored_client = keyring.get_password("watchmanAgent", "client")
-            stored_secret = keyring.get_password("watchmanAgent", "secret")
-        except NoKeyringError:
-            # we use db
-            stored_client = read_obj.read_value("client")
-            stored_secret = read_obj.read_value("secret")
-
-        client = client_id if client_id else stored_client
-        secret = secret_key if secret_key else stored_secret
-
         if platform.system() == 'Windows':
             env_path = str(Path(__file__).resolve().parent) + "\commands\dist\.env"
-            if not network_mode:
-                os.system(
-                    str(Path(__file__).resolve().parent) + f"\commands\dist\main.exe {client} {secret} {env_path}")
-            else:
-                os.system(str(Path(__file__).resolve().parent) +
-                          f"\commands\dist\main.exe --network-mode -c {community} -d {target_address} {client} {secret} {env_path}")
+            os.system(str(Path(__file__).resolve().parent) +
+                      "\commands\dist\main.exe run")
         else:
             env_path = str(Path(__file__).resolve().parent) + "/commands/dist/.env"
-
-            if not network_mode:
-                os.system(str(Path(__file__).resolve().parent) + f"/commands/dist/main {client} {secret} {env_path}")
-            else:
-                os.system(str(Path(__file__).resolve().parent) +
-                          f"/commands/dist/main --network-mode -c {community} -d {target_address} {client} {secret} {env_path}")
+            os.system(str(Path(__file__).resolve().parent) +
+                          "/commands/dist/main run")
 
 
 cli.add_command(configure_connect)
