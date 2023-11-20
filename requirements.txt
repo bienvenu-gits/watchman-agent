@@ -1,12 +1,12 @@
 requests==2.31.0
 setuptools==68.2.2
 scapy==2.5.0
-keyring==24.2.0
+keyring==24.3.0
 python-crontab==3.0.0
 environs==9.5.0
 click==8.1.7
-cython==3.0.3
-pyinstaller==6.0.0
+cython==3.0.5
+pyinstaller==6.2.0
 sqlitedict==2.1.0
 paramiko==3.3.1
 pyyaml==6.0.1

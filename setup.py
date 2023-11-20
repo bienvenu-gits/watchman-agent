@@ -2,7 +2,7 @@ from setuptools import setup, find_namespace_packages
 
 setup(
     name="watchman-agent",
-    version="1.2.4",
+    version="1.2.5",
     author="Watchman",
     author_email="support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
@@ -22,7 +22,14 @@ setup(
         'keyring',
         'python-crontab',
         'environs',
-        'click'
+        'click',
+        'sqlitedict',
+        'paramiko',
+        'pyyaml',
+        'schedule',
+        'pysnmplib',
+        'semver',
+        'packaging',
     ],
 
     # entry_points={  # Optional
