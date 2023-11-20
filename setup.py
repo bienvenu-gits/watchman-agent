@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_namespace_packages
 
 setup(
     name="watchman-agent",
@@ -6,7 +6,7 @@ setup(
     author="Watchman",
     author_email="support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
-    packages=find_packages(where='watchman_agent'),
+    packages=['watchman_agent', 'watchman_agent.commands'],
     python_requires='>=3.8',
     include_package_data=True,
     # py_modules=[''],
