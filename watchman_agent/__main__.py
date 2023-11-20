@@ -1,9 +1,8 @@
 import ipaddress
 import json
 import os
-import yaml
-import configparser
 import platform
+import subprocess
 from functools import cached_property
 from pathlib import Path
 import click
@@ -12,10 +11,22 @@ from crontab import CronTab
 from keyring.errors import NoKeyringError
 from sqlitedict import SqliteDict
 
-from watchman_agent.commands.__configure__ import Configuration
-
 watchmanAgentDb = "watchmanAgent.db"
 configYml = "config.yml"
+
+
+def run_cli_command(command):
+    if platform.system().lower() in ['linux', 'darwin']:
+        path = "" + str(Path(__file__).resolve().parent) + f"/commands/dist/main"
+        c = [path]
+        c.extend(command.split())
+        print(c)
+        subprocess.run(c, shell=False)
+        # os.system(str(Path(__file__).resolve().parent) + f"/commands/dist/main {command}")
+    else:
+        path = str(Path(__file__).resolve().parent) + f"/commands/dist/main.exe"
+        # subprocess.run([path, command], shell=True)
+        os.system(str(Path(__file__).resolve().parent) + f"/commands/dist/main.exe {command}")
 
 
 class WatchmanCLI(click.Group):
@@ -143,7 +154,8 @@ def configure():
 @click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
 def configure_connect(mode, client_id, client_secret):
-    pass
+    if mode or client_id and client_secret:
+        run_cli_command(f'configure connect --mode {mode} --client-id {client_id} --client-secret {client_secret}')
 
 
 @configure.command(name="network", help='Save network configuration variables')
@@ -160,7 +172,29 @@ def configure_connect(mode, client_id, client_secret):
 @click.option("-e", "--exempt", type=str, help="Device list to ignore when getting stacks. eg: --exempt "
                                                "192.168.1.12,", required=False)
 def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, snmp_auth_key, snmp_priv_key, snmp_user):
-    pass
+    if snmp_community:
+        run_cli_command(f'configure network --snmp-community {snmp_community}')
+
+    if snmp_user:
+        run_cli_command(f'configure network --snmp-user {snmp_user}')
+
+    if snmp_auth_key:
+        run_cli_command(f'configure network --snmp-auth-key {snmp_auth_key}')
+
+    if snmp_priv_key:
+        run_cli_command(f'configure network --snmp-priv-key {snmp_priv_key}')
+
+    if exempt:
+        run_cli_command(f'configure network --exempt {exempt}')
+
+    if snmp_port:
+        run_cli_command(f'configure network --snmp-port {snmp_port}')
+
+    if network_target:
+        run_cli_command(f'configure network --network-target {network_target}')
+
+    if cidr:
+        run_cli_command(f'configure network --cidr {cidr}')
 
 
 @configure.command(name="schedule", help='Save schedule configuration variables')
@@ -169,23 +203,21 @@ def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, s
 @click.option("-d", "--day", type=int, help="Execution every day.", required=False)
 @click.option("-mo", "--month", type=int, help="Execution every month.", required=False)
 def configure_schedule(minute, hour, day, month):
-    pass
+    if minute:
+        run_cli_command(f'configure schedule --minute {minute}')
+
+    if hour:
+        run_cli_command(f'configure schedule --hour {hour}')
+
+    if day:
+        run_cli_command(f'configure schedule --day {day}')
+
+    if month:
+        run_cli_command(f'configure schedule --month {month}')
 
 
 @cli.command(name='run', help='Attach monitoring to cron job and watch for stacks')
 def run():
-    cfg = Configuration()
-    config = cfg.create(config_file_path=configYml)
-
-    network_mode = config.get_value('runtime', 'mode', default='network')
-    client_id = config.get_value('runtime', 'client_id')
-    secret_key = config.get_value('runtime', 'secret_key')
-    if None in [network_mode, client_id, secret_key]:
-        click.echo("\nPlease configure agent! Check help to see how to configure.")
-
-    community = config.get_value('network', 'snmp', 'v2', 'community', default='public')
-    ip_network = config.get_value('network', 'ip')
-    target_address = ip_network
     with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + watchmanAgentDb) as r_obj:
         read_obj = r_obj
     with KeyDB(table_name="watchmanAgent",
@@ -193,61 +225,12 @@ def run():
         write_obj = w_obj
 
     if first_run():
-        try:
-            keyring.set_password("watchmanAgent", "client", client_id)
-            keyring.set_password("watchmanAgent", "secret", secret_key)
-        except NoKeyringError:
-            # use the db instead
-            write_obj.insert_value("client", client_id)
-            write_obj.insert_value("secret", secret_key)
-
-        if platform.system() == 'Windows':
-            env_path = str(Path(__file__).resolve().parent) + "\commands\dist\.env"
-            if not network_mode:
-                os.system(
-                    str(Path(
-                        __file__).resolve().parent) + "\commands\dist\main.exe run")
-                cron = CronJob()
-                cron.new_job(command=f"watchman-agent connect {client_id} {secret_key}", comment="agentRunFirst")
-            else:
-                os.system(str(Path(__file__).resolve().parent) +
-                          "\commands\dist\main.exe run")
-
-                cron = CronJob()
-                cron.new_job(
-                    command="watchman-agent run",
-                    comment="agentRun")
-        else:
-            env_path = str(Path(__file__).resolve().parent) + "/commands/dist/.env"
-
-            if not network_mode:
-                os.system(
-                    str(Path(__file__).resolve().parent) + "/commands/dist/main run")
-                cron = CronJob()
-                cron.new_job(
-                    command=f"watchman-agent connect {client_id} {secret_key}", comment="agentRun")
-            else:
-                os.system(str(Path(__file__).resolve().parent) +
-                          "/commands/dist/main run")
-                cron = CronJob()
-                cron.new_job(
-                    command="watchman-agent run",
-                    comment="agentRun")
+        run_cli_command(f"run")
+        cron = CronJob()
+        cron.new_job(command=f"watchman-agent run", comment="agentRunFirst")
     else:
-        if platform.system() == 'Windows':
-            env_path = str(Path(__file__).resolve().parent) + "\commands\dist\.env"
-            os.system(str(Path(__file__).resolve().parent) +
-                      "\commands\dist\main.exe run")
-        else:
-            env_path = str(Path(__file__).resolve().parent) + "/commands/dist/.env"
-            os.system(str(Path(__file__).resolve().parent) +
-                      "/commands/dist/main run")
+        run_cli_command(f"run")
 
-
-cli.add_command(configure_connect)
-cli.add_command(configure_network)
-cli.add_command(configure_schedule)
-cli.add_command(run)
 
 if __name__ == "__main__":
     cli()

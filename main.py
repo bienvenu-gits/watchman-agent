@@ -992,7 +992,6 @@ def format_pkg_version(command1_output, host_os):
 
 def network_host_audit(file):
     host_os = get_host_os()
-
     if host_os == 'Windows':
         get_host_packages(
             ["powershell", "-Command", "Get-Package", "|", "Select", "Name,Version"], host_os, file, None)
@@ -1012,7 +1011,7 @@ def network_host_audit(file):
             get_host_packages(["yum", "list", "installed"],
                               host_os, file, None)
         else:
-            custom_exit("Sorry, this Operating System is not supported yet.\n")
+            custom_exit(f"The actual Operating System {host_os} is not supported yet.\n")
     #########
     ##
     # start container inspection
@@ -1474,7 +1473,7 @@ def run():
                         obj.insert_value("token", token)
         else:
             click.echo("\nAuthentication failed!!")
-            click.echo(f"Detail : {response.json()['detail']} ")
+            click.echo(f"Detail Body : {response.json()} ")
     except requests.exceptions.RequestException as e:
         request_error(error=e)
     try:
