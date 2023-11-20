@@ -1295,7 +1295,7 @@ def run():
             custom_exit("TOKEN")
     except NoKeyringError as e:
         # use db method
-        with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db") as obj:
+        with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "/" + "watchmanAgent.db") as obj:
             if obj.read_value("token") is None:
                 custom_exit("Authentication failed!!")
     """
