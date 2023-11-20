@@ -1454,13 +1454,13 @@ def run():
 
     community = config.get_value('network', 'snmp', 'v2', 'community', default='public')
     network = config.get_value('network', 'ip')
-
     try:
         response = requests.get(CONNECT_URL, headers={
             "AGENT-ID": client_id,
             "AGENT-SECRET": secret_key
         })
 
+        click.echo(f"Detail : {response} ")
         if response.status_code == 200:
             token = response.json()["token"]
             if token:
@@ -1473,13 +1473,16 @@ def run():
                                mode="write") as obj:
                         obj.insert_value("token", token)
         else:
+            click.echo("\nRUN")
             click.echo("\nAuthentication failed!!")
             click.echo(f"Detail : {response.json()['detail']} ")
+            click.echo(f"Detail : {response.json()} ")
     except requests.exceptions.RequestException as e:
         request_error(error=e)
     try:
         if keyring.get_password("watchmanAgent", "token") is None:
             custom_exit("Authentication failed!!")
+            custom_exit("TOKEN")
     except NoKeyringError as e:
         # use db method
         with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db") as obj:
