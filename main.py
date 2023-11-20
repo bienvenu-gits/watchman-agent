@@ -54,7 +54,6 @@ class WatchmanCLI(click.Group):
             args = ['default']
         return super(WatchmanCLI, self).resolve_command(ctx, args)
 
-
 class KeyDB(object):
     def __init__(self, table_name, db, mode="read"):
         self.__db_object = None
@@ -85,7 +84,6 @@ class KeyDB(object):
     def __exit__(self, type, val, tb):
         self.__db_object.close()
 
-
 class IpType(click.ParamType):
     name = "ip"
 
@@ -103,7 +101,6 @@ class IpType(click.ParamType):
                     ctx,
                 )
         return value
-
 
 class IniFileConfiguration:
     _instance = None
@@ -144,7 +141,6 @@ class IniFileConfiguration:
     def save_config_to_file(self):
         with open(self.config_file_path, 'w') as configfile:
             self.config.write(configfile)
-
 
 class YamlFileConfiguration:
     _instance = None
@@ -201,7 +197,6 @@ class YamlFileConfiguration:
             with open(self.config_file_path, 'w') as yaml_file:
                 yaml.dump(self.config, yaml_file, default_flow_style=False)
 
-
 class Configuration:
     @staticmethod
     def create(config_file_path=configFile):
@@ -210,25 +205,8 @@ class Configuration:
         else:
             return IniFileConfiguration(config_file_path)
 
-
 def custom_exit(message: str):
     raise SystemExit(message)
-
-
-"""
-    Network Host Scanning
-"""
-
-
-def possible_hosts(cidr):
-    # Extraire le nombre de bits hôtes du CIDR
-    bits_hosts = 32 - int(cidr)
-
-    # Calculer le nombre d'hôtes possibles (2^n - 2 où n est le nombre de bits hôtes)
-    hosts = 2 ** bits_hosts - 2
-
-    return hosts
-
 
 def get_possible_active_hosts(ip_address, cidr):
     if not is_valid_ip(ip_address):
@@ -257,21 +235,6 @@ def get_possible_active_hosts(ip_address, cidr):
 
     return hosts
 
-
-def get_network_ip_address(ip, cidr):
-    if not is_valid_ip(ip):
-        raise ValueError("Invalid ip address")
-
-    cidr_format = f'{ip}/{cidr}'
-    # Utilisez la bibliothèque ipaddress pour analyser le CIDR
-    network = ipaddress.IPv4Network(cidr_format, strict=False)
-
-    # Obtenez l'adresse réseau sous forme de chaîne de caractères
-    ip_address = network.network_address
-
-    return str(ip_address)
-
-
 def is_valid_ip(ip):
     try:
         # Tentez de créer un objet IP à partir de la chaîne donnée
@@ -279,7 +242,6 @@ def is_valid_ip(ip):
         return True
     except ipaddress.AddressValueError:
         return False
-
 
 def is_ip_active(ip, all_active=False):
     try:
@@ -293,7 +255,6 @@ def is_ip_active(ip, all_active=False):
             return True
         except socket.error:
             return False
-
 
 linux_version_pattern = re.compile(
     r"^"
@@ -311,9 +272,7 @@ linux_version_pattern = re.compile(
     r")?"
     r"$"
 )
-
 irregular_version_pattern = re.compile(r'\d+(\.\d+)*')
-
 
 def parse_version(text):
     """ Semantic Versioning (SemVer)
@@ -402,7 +361,6 @@ def parse_version(text):
                     print(f'Cannot definitely parse version {text}')
             return version
 
-
 def snmp_scanner(ip, ports: list = None):
     if ports is None:
         ports = [161]
@@ -425,13 +383,11 @@ def snmp_scanner(ip, ports: list = None):
             print(f'Connexion exception the host must probably filtering the port. Reason: {e}')
     return open_ports
 
-
 def scan_snmp_and_append(ip, snmp_port, active_hosts):
     scan_result = snmp_scanner(ip=ip, ports=[snmp_port])
     if len(scan_result) > 0:
         active_hosts.add(ip)
     return active_hosts
-
 
 def reformatting_version(version):
     patterns = [
@@ -455,10 +411,8 @@ def reformatting_version(version):
         # Use re.search to find the first match in the input string
         re.search(pattern, version)
 
-
 def coroutine_wrapper(coroutine):
     asyncio.run(coroutine)
-
 
 def extract_info_linux(package_string):
     # Utilisation d'une expression régulière pour extraire le nom, la version et l'architecture sous Linux
@@ -472,7 +426,6 @@ def extract_info_linux(package_string):
         return {"name": name, "version": version, "arch": architecture}
     else:
         return None
-
 
 def extract_info_windows(package_string):
     try:
@@ -503,7 +456,6 @@ def extract_info_windows(package_string):
         else:
             return {"name": package_string, "version": None, "architecture": None}
 
-
 def extract_windows_host_info(input_str):
     # Expression régulière pour extraire l'architecture matérielle (premier mot après "Hardware:")
     hardware_architecture_pattern = r'Hardware:\s(\S+)'
@@ -530,7 +482,6 @@ def extract_windows_host_info(input_str):
         "build": software_build
     }
 
-
 def extract_info_macos(package_string):
     # Utilisation d'une expression régulière pour extraire le nom et la version sous macOS
     pattern = r'^(.*?)\s+(\S+)\s*$'
@@ -546,7 +497,6 @@ def extract_info_macos(package_string):
         return {"name": name, "version": version, "arch": None}
     else:
         return None
-
 
 async def get_packages_async(hostname, community, os_name):
     var_bind = '1.3.6.1.2.1.25.6.3.1.2'
@@ -581,7 +531,6 @@ async def get_packages_async(hostname, community, os_name):
     for thread in threads:
         thread.join()
     return result
-
 
 async def get_host_info_async(hostname, community):
     var_binds = {
@@ -619,7 +568,6 @@ async def get_host_info_async(hostname, community):
                 else:
                     print("Cannot parse unix based host informations.")
     return result
-
 
 async def parse_snmp_response(iterator, var_bind):
     def sub_thread_iter(bind, var, res, stop):
@@ -661,7 +609,6 @@ async def parse_snmp_response(iterator, var_bind):
         thread.join()
     return result
 
-
 async def snmp_query_v2(var_bind, hostname, community="public"):
     snmp_engine = SnmpEngine()
     return nextCmd(
@@ -672,7 +619,6 @@ async def snmp_query_v2(var_bind, hostname, community="public"):
         ObjectType(ObjectIdentity(var_bind)),
     )
 
-
 async def snmp_get_query_v2(var_bind, hostname, community="public"):
     snmp_engine = SnmpEngine()
     return getCmd(
@@ -682,7 +628,6 @@ async def snmp_get_query_v2(var_bind, hostname, community="public"):
         ContextData(),
         ObjectType(ObjectIdentity(var_bind)),
     )
-
 
 async def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
                         priv_protocol=usmAesCfb128Protocol):
@@ -695,13 +640,11 @@ async def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_p
         ObjectType(ObjectIdentity(var_bind)),
     )
 
-
 def scan_up_host_and_append(ip, active_hosts):
     active = is_ip_active(ip=ip, all_active=True)
     if active:
         active_hosts.add(ip)
     return active_hosts
-
 
 def get_snmp_hosts(network):
     cfg = Configuration()
@@ -729,12 +672,6 @@ def get_snmp_hosts(network):
 
     return active_hosts
 
-
-"""
-    Host Query by snmp
-"""
-
-
 async def getting_stacks_by_host_snmp(active_hosts, community):
     hosts_report = {}
     for host in active_hosts:
@@ -755,11 +692,9 @@ async def getting_stacks_by_host_snmp(active_hosts, community):
             pass
     return json.dumps(hosts_report)
 
-
 """
     Display an error message
 """
-
 
 def request_error(error):
     click.echo(error)
@@ -773,11 +708,9 @@ def request_error(error):
         """
     )
 
-
 """
     Get each container Name and image  
 """
-
 
 def get_container_name_and_images():
     containers_info = {}
@@ -801,11 +734,9 @@ def get_container_name_and_images():
 
     return containers_info
 
-
 """
     Get packages and version result from command line
 """
-
 
 def get_host_packages(command, host_os, file, container):
     if host_os == 'Windows':
@@ -894,11 +825,9 @@ def get_host_packages(command, host_os, file, container):
 
         click.echo(f" + Listing Packages for {container} container in {host_os} successfully !!!\n")
 
-
 """
     Get the host os 
 """
-
 
 def get_host_os():
     if pt.system() == 'Windows':
@@ -919,11 +848,9 @@ def get_host_os():
         if "system" in line.lower():
             return line.split(':')[-1].lower().lstrip()
 
-
 """
     Format the package name and version for usage 
 """
-
 
 def format_pkg_version(command1_output, host_os):
     if "ubuntu" in host_os or "debian" in host_os:
@@ -984,11 +911,9 @@ def format_pkg_version(command1_output, host_os):
 
     return tab
 
-
 """
     Collect package name and version from command line
 """
-
 
 def network_host_audit(file):
     host_os = get_host_os()
@@ -1061,11 +986,9 @@ def network_host_audit(file):
             if container != last_container:
                 file.write(",")
 
-
 """
     Format properly the content of the reported file to json syntax
 """
-
 
 def format_json_report(client_id, client_secret, file):
     file_content = ""
@@ -1097,139 +1020,6 @@ def format_json_report(client_id, client_secret, file):
         print(f"error on request {e}")
         request_error(error=e)
 
-
-def get_local_ip():
-    try:
-        # Create a socket object to retrieve the local IP address
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(0.1)  # Set a timeout for the socket operation
-        s.connect(("8.8.8.8", 80))  # Connect to a known external server
-        local_ip = s.getsockname()[0]  # Get the local IP address
-        s.close()
-        return local_ip
-    except Exception as e:
-        return str(e)
-
-
-def get_public_ip(host_address):
-    try:
-        # Use socket.gethostbyname to retrieve the IP address
-        ip_address = socket.gethostbyname(host_address)
-        return ip_address
-    except socket.gaierror as error:
-        print(f"error {error}")
-        return None
-
-
-def get_remote_os_with_snmp(active_hosts):
-    try:
-
-        hosts_report = []
-        config = read_config()
-
-        network_conf = config.get('network', {})
-
-        network_snmp_conf = network_conf.get('snmp', {})
-
-        # SNMPv3 credentials
-        snmp_user = network_snmp_conf.get('user', None)
-        snmp_auth_key = network_snmp_conf.get('auth_key', None)
-        snmp_priv_key = network_snmp_conf.get('priv_key', None)
-        snmp_engine_time = 12345  # Replace with the correct SNMP engine time
-        snmp_engine_boots = 1  # Replace with the correct SNMP engine boots value
-
-        # SNMPv3 engine ID (usually empty for most devices)
-
-        target_port = network_snmp_conf.get('port', 161)  # Default SNMP port
-
-        # Create SNMPv3 security settings
-        security_parameters = UsmUserData(
-            snmp_user,
-            snmp_auth_key,
-            snmp_priv_key,
-            authProtocol=usmHMACSHAAuthProtocol,
-            privProtocol=usmAesCfb128Protocol,
-            # securityEngineBoots=snmp_engine_boots,
-            # securityEngineTime=snmp_engine_time
-        )
-
-        # Create SNMPv3 context
-        context = ContextData()
-
-        for host in active_hosts:
-            # SNMPv3 target
-            target_host = get_public_ip(host)
-            # Create SNMP request
-            try:
-                # get_request = getCmd(
-                #     SnmpEngine(),
-                #     security_parameters,
-                #     UdpTransportTarget((target_host, target_port)),
-                #     context,
-                #     ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0))
-                # )
-                stacks = []
-                command_output = subprocess.getstatusoutput(
-                    f"snmpget -v3  -l authPriv -u {snmp_user} -a SHA -A {snmp_auth_key} -x AES -X {snmp_priv_key} {host} 1.3.6.1.2.1.25.6.3.1.2")
-                
-                if command_output[0] == 0:
-                    mibs = command_output[1].split('\n')
-                    for mib in mibs:
-                        try:
-                            stack = mib.split('"')[1]
-                            versions_info = stack.split("-")[-2:]
-                            stack_names = stack.split("-")[:-2]
-                        except:
-                            pass
-                        try:
-                            if versions_info[0][0].isdigit():
-                                stacks.append({
-                                    "name": "-".join(stack_names),
-                                    "version": "-".join(versions_info)
-                                })
-                            elif versions_info[1][0].isdigit():
-                                stacks.append({
-                                    "name": "-".join(stack_names, versions_info[0]),
-                                    "version": versions_info[1]
-                                })
-                            else:
-                                stacks.append({
-                                    "name": stack,
-                                    "version": stack
-                                })
-
-                        except:
-                            pass
-
-                command_output = subprocess.getstatusoutput(
-                    f"snmpget -v3  -l authPriv -u {snmp_user} -a SHA -A {snmp_auth_key} -x AES -X {snmp_priv_key} {target_host} .1.3.6")
-                try:
-                    os_info = re.search('"(.*)"', command_output[1])
-                    if os_info is not None:
-                        os_info = os_info.group(1)
-                    else:
-                        os_info = command_output[1].split("#")[0]
-
-                except:
-                    os_info = command_output[1].split("#")[0]
-
-                if len(os_info) >= 50:
-                    os_info = os_info.split("#")[0]
-
-                hosts_report.append({
-                    "os": os_info,
-                    "ipv4": host,
-                    "packages": stacks
-                })
-
-                return hosts_report
-            except Exception as e:
-                print(e)
-
-    except Exception as e:
-        return str(e)
-
-
 def read_config(config_file: str = None):
     if not config_file:
         file_name = configFile
@@ -1247,7 +1037,6 @@ def read_config(config_file: str = None):
         print(f"Cannot read config file {file_name}. This is error {e}")
         return None
 
-
 def update_config_with_nested(config, updated_config):
     if config:
         for key, value in updated_config.items():
@@ -1261,7 +1050,6 @@ def update_config_with_nested(config, updated_config):
                 # Update or add a new key-value pair
                 config[key] = value
 
-
 def update_config(file_name, loaded_config_data, new_config):
     update_config_with_nested(loaded_config_data, new_config)
     try:
@@ -1270,7 +1058,6 @@ def update_config(file_name, loaded_config_data, new_config):
         print(f"Configs successfully written in '{file_name}'.")
     except yaml.YAMLError as e:
         print(f"Cannot write config file. {e}")
-
 
 def run_not_network(client_id, secret_key):
     """
@@ -1289,7 +1076,6 @@ def run_not_network(client_id, secret_key):
     file.close()
     format_json_report(client_id, secret_key, "data")
 
-
 def run_network(community, device, client_id, secret_key):
     """
         By snmp mibs 
@@ -1301,11 +1087,6 @@ def run_network(community, device, client_id, secret_key):
             hosts = get_snmp_hosts(device)
         except Exception as e:
             custom_exit(f"Execution error: {e}")
-        hosts = ["209.97.189.19"]
-        # hosts = ["192.168.100.161"]
-        # hosts = ["192.168.100.248"]
-        # hosts = ["192.168.100.18"]
-        # hosts = ["192.168.100.131"]
         report = asyncio.run(getting_stacks_by_host_snmp(hosts, community))
 
         with open("data", "w+") as file:

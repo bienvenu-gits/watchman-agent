@@ -10,7 +10,6 @@ html/
 htmlcov/
 coverage/
 build/
-dist/
 *.egg-info/
 *.log
 MANIFEST
