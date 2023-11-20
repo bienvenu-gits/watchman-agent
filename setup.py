@@ -2,7 +2,7 @@ from setuptools import setup, find_namespace_packages, find_packages
 
 setup(
     name="watchman-agent",
-    version="1.2.5",
+    version="2.0",
     author="Watchman",
     author_email="support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
