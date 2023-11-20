@@ -6,7 +6,7 @@ setup(
     author="Watchman",
     author_email="support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
-    packages=['watchman_agent', 'watchman_agent.commands'],
+    packages=['watchman_agent', 'watchman_agent.*'],
     python_requires='>=3.8',
     include_package_data=True,
     # py_modules=[''],
