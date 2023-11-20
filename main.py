@@ -1,175 +1,764 @@
-import subprocess
-import re
-import requests
-import sys
+import asyncio
+import binascii
+import configparser
+import ipaddress
+import json
+import logging
+import os
+import threading
+
 import platform as pt
-from scapy.layers.inet import IP, ICMP
-from scapy.sendrecv import sr1
+import re
+import time
+import socket
+import subprocess
+import yaml
+from pathlib import Path
+
+import click
+import keyring
+import requests
+from environs import Env
+from keyring.errors import NoKeyringError
+from pysnmp.hlapi import *
+from sqlitedict import SqliteDict
+from semver.version import Version as sem_version
+from packaging import version as pkg_version
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+configFile = "config.yml"
 
 """
     Fetch Variables environment
 """
-def get_env_vars(env_path):
+env = Env()
+env.read_env()
+ENV = env("ENV_MODE")
 
-    global WEBHOOK_URL
-    global CONNECT_URL
-    
+WEBHOOK_URL = env("WEBHOOK_URL")
+CONNECT_URL = env("CONNECT_URL")
 
-    with open(env_path,"r") as env_file :
-        env_vars = env_file.readlines()
-        
-        env_vars = [env_var.split("\n")[0] for env_var in env_vars  ]
+if ENV == "development":
+    WEBHOOK_URL = env("DEV_WEBHOOK_URL")
+    CONNECT_URL = env("DEV_CONNECT_URL")
 
+hour_range_value = 24
+
+
+class WatchmanCLI(click.Group):
+    def resolve_command(self, ctx, args):
+        if not args and not ctx.protected_args:
+            args = ['default']
+        return super(WatchmanCLI, self).resolve_command(ctx, args)
+
+
+class KeyDB(object):
+    def __init__(self, table_name, db, mode="read"):
+        self.__db_object = None
+        self._table_name = table_name
+        self._db = db
+        self._mode = mode
+
+    def __enter__(self):
+        if self._mode == "read":
+            self.__db_object = SqliteDict(self._db, tablename=self._table_name, encode=json.dumps, decode=json.loads)
+
+        if self._mode == "write":
+            self.__db_object = SqliteDict(self._db, tablename=self._table_name, encode=json.dumps, decode=json.loads,
+                                          autocommit=True)
+        return self
+
+    def read_value(self, key: str):
+        if key:
+            return self.__db_object[key]
+        return None
+
+    def insert_value(self, key: str, value: str):
+        if key and value and self._mode == "write":
+            self.__db_object[key] = value
+            return True
+        return False
+
+    def __exit__(self, type, val, tb):
+        self.__db_object.close()
+
+
+class IpType(click.ParamType):
+    name = "ip"
+
+    def convert(self, value, param, ctx):
+        try:
+            ipaddress.ip_network(value)
+        except:
+            try:
+                ipaddress.ip_address(value)
+            except ValueError as e:
+                print('failed')
+                self.fail(
+                    str(e),
+                    param,
+                    ctx,
+                )
+        return value
+
+
+class IniFileConfiguration:
+    _instance = None
+
+    def __new__(cls, config_file_path=None):
+        if not config_file_path:
+            config_file_path = 'config.ini'
+
+        if cls._instance is None:
+            cls._instance = super(IniFileConfiguration, cls).__new__(cls)
+            cls._instance.config = configparser.ConfigParser()
+            cls._instance.config_file_path = config_file_path
+            cls._instance.load_config()
+        return cls._instance
+
+    def load_config(self):
+        if self.config_file_path is not None and os.path.exists(self.config_file_path):
+            self.config.read(self.config_file_path)
+        else:
+            with open(self.config_file_path, 'w') as config_file:
+                self.config.write(config_file)
+
+    def get_value(self, section, key, default=None):
+        try:
+            return self.config.get(section, key)
+        except (configparser.NoSectionError, configparser.NoOptionError):
+            return default
+
+    def set_value(self, section, key, value):
+        if not self.config.has_section(section):
+            self.config.add_section(section)
+        self.config.set(section, key, value)
+        self.save_config_to_file()
+
+    def ensure_update(self, old_config, new_config):
+        return NotImplementedError
+
+    def save_config_to_file(self):
+        with open(self.config_file_path, 'w') as configfile:
+            self.config.write(configfile)
+
+
+class YamlFileConfiguration:
+    _instance = None
+
+    def __new__(cls, config_file_path=None):
+        if not config_file_path:
+            config_file_path = configFile
+
+        if cls._instance is None:
+            cls._instance = super(YamlFileConfiguration, cls).__new__(cls)
+            cls._instance.config = {}
+            cls._instance.config_file_path = config_file_path
+            cls._instance.load_config()
+        return cls._instance
+
+    def load_config(self):
+        if self.config_file_path is not None and os.path.exists(self.config_file_path):
+            with open(self.config_file_path, 'r') as yaml_file:
+                self.config = yaml.safe_load(yaml_file)
+        else:
+            # If it doesn't exist, create an empty YAML file
+            with open(self.config_file_path, 'w') as yaml_file:
+                yaml.dump({}, yaml_file, default_flow_style=False)
+
+    def get_value(self, *keys, default=None):
+        try:
+            config_section = self.config
+            for key in keys:
+                config_section = config_section.get(key, {})
+            return config_section
+        except (AttributeError, KeyError):
+            return default
+
+    def set_value(self, *keys, value):
+        config_section = self.config
+        for key in keys[:-1]:
+            config_section = config_section.setdefault(key, {})
+        config_section[keys[-1]] = value
+        self.save_config_to_file()
+
+    def ensure_update(self, old_config, new_config):
+        if new_config:
+            update_config_with_nested(old_config, new_config)
 
         try:
-            if "production" in env_vars[0] :
-                WEBHOOK_URL = env_vars[1].split("=")[1]
-                CONNECT_URL =  env_vars[2].split("=")[1]
-            elif "developement" in env_vars[0] :
-                WEBHOOK_URL = env_vars[3].split("=")[1]
-                CONNECT_URL =  env_vars[4].split("=")[1]
-            else : 
-                print("\n❌️ Unable to run watchman agent ❌️\n")
-                print("   You are probabily missing env vars.")
-                sys.exit(1)
-        except :
-            print("\n❌️ Unable to run watchman agent ❌️\n")
-            print("   You are probabily missing env vars.")
-            sys.exit(1)
+            with open(self.config_file_path, 'w') as yaml_file:
+                yaml.dump(old_config, yaml_file, default_flow_style=False)
+            print(f"Configs successfully updated in '{yaml_file}'.")
+        except yaml.YAMLError as e:
+            print(f"Cannot update config file. {e}")
+
+    def save_config_to_file(self):
+        if self.config and self.config_file_path:
+            with open(self.config_file_path, 'w') as yaml_file:
+                yaml.dump(self.config, yaml_file, default_flow_style=False)
 
 
-"""
-    Network Host Scanning
-"""
-def get_network_hosts(target_hosts) :
+class Configuration:
+    @staticmethod
+    def create(config_file_path=configFile):
+        if config_file_path and config_file_path.endswith('.yml'):
+            return YamlFileConfiguration(config_file_path)
+        else:
+            return IniFileConfiguration(config_file_path)
 
-    active_hosts = []
-    
-    paquets_for_each_host = [p for p in IP(dst=[target_hosts])/ICMP()]
-    
-    for paquet in paquets_for_each_host:
-        try : 
-            answer = sr1( paquet , timeout=1)
-            try :
-                active_hosts.append(answer[IP].src)
-            except : 
-                pass
-        except OSError : 
-            print("Run agent as adminnistrator")
-            sys.exit(1)
+
+def custom_exit(message: str):
+    raise SystemExit(message)
+
+
+def get_possible_active_hosts(ip_address, cidr):
+    if not is_valid_ip(ip_address):
+        raise ValueError("Invalid ip address")
+
+    cidr_format = f'{ip_address}/{cidr}'
+    # Utilisez la bibliothèque ipaddress pour analyser le CIDR
+    network = ipaddress.IPv4Network(cidr_format, strict=False)
+
+    # Obtenez la liste des adresses IP possibles dans le réseau
+    hosts = set()
+
+    threads = []
+    for ip in network.hosts():
+        if ip in (network.network_address, network.broadcast_address):
+            # Skip network and broadcast addresses
+            continue
+
+        host = str(ip)
+        thread = threading.Thread(target=scan_up_host_and_append, args=(host, hosts))
+        thread.start()
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
+
+    return hosts
+
+
+def is_valid_ip(ip):
+    try:
+        # Tentez de créer un objet IP à partir de la chaîne donnée
+        ip = ipaddress.IPv4Address(ip)
+        return True
+    except ipaddress.AddressValueError:
+        return False
+
+
+def is_ip_active(ip, all_active=False):
+    try:
+        # Attempt to create a socket connection to the IP address and port 0
+        socket.inet_pton(socket.AF_INET, ip)
+        return True
+    except socket.error:
+        try:
+            # Attempt to create a socket connection to the IP address and port 0 for IPv6
+            socket.inet_pton(socket.AF_INET6, ip)
+            return True
+        except socket.error:
+            return False
+
+
+linux_version_pattern = re.compile(
+    r"^"
+    # epoch must start with a digit
+    r"(\d+:)?"
+    # upstream must start with a digit
+    r"\d"
+    r"("
+    # upstream  can contain only alphanumerics and the characters . + -
+    # ~ (full stop, plus, hyphen, tilde)
+    r"[A-Za-z0-9\.\+\~\-]+"
+    r"|"
+    # If there is no debian_revision then hyphens are not allowed in version.
+    r"[A-Za-z0-9\.\+\~]+-[A-Za-z0-9\+\.\~]+"
+    r")?"
+    r"$"
+)
+irregular_version_pattern = re.compile(r'\d+(\.\d+)*')
+
+
+def parse_version(text):
+    """ Semantic Versioning (SemVer)
+     Date-based Versioning
+     Alphanumeric or Custom Schemes
+     Debian based version parser
+     Ubuntu based version parser
+     parse version with build:
+    """
+    if not text:
+        return None
+
+    if linux_version_pattern.match(text):
+        match = linux_version_pattern.search(text)
+        if match:
+            version = match.group()
+            if ":" in version:
+                epoch, _, version = version.partition(":")
+                epoch = int(epoch)
+            else:
+                epoch = 0
+
+            if "-" in version:
+                upstream, _, revision = version.rpartition("-")
+            else:
+                upstream = version
+                revision = "0"
+
+            version = upstream
+            regex_matched = False
+
+            if 'ubuntu' in version:
+                match = irregular_version_pattern.search(version)
+                if match:
+                    regex_matched = True
+                    version = match.group()
+            elif 'debian' in version:
+                match = irregular_version_pattern.search(version)
+                if match:
+                    regex_matched = True
+                    version = match.group()
+            elif 'git' in version:
+                match = irregular_version_pattern.search(version)
+                if match:
+                    regex_matched = True
+                    version = match.group()
+            elif '-' in version:
+                match = irregular_version_pattern.search(version)
+                if match:
+                    regex_matched = True
+                    version = match.group()
+            else:
+                match = irregular_version_pattern.search(version)
+                if match:
+                    regex_matched = True
+                    version = match.group()
+
+            parsed = None
+            if not regex_matched:
+                try:
+                    parsed = sem_version.parse(version)
+                except ValueError:
+                    try:
+                        parsed = pkg_version.parse(version)
+                    except pkg_version.InvalidVersion:
+                        parsed = None
+
+            if parsed:
+                parsed_split_len = len(str(parsed).split("."))
+                if parsed_split_len < 3:
+                    version = [str(parsed.major), str(parsed.minor)]
+                elif parsed_split_len == 3:
+                    try:
+                        version = [str(parsed.major), str(parsed.minor), str(parsed.patch)]
+                    except AttributeError:
+                        version = [str(parsed.major), str(parsed.minor), str(parsed.micro)]
+                else:
+                    version = parsed
+
+                if isinstance(version, list):
+                    version = ".".join(version)
+                else:
+                    version = version
+            else:
+                if not regex_matched:
+                    print(f'Cannot definitely parse version {text}')
+            return version
+
+
+def snmp_scanner(ip, ports: list = None):
+    if ports is None:
+        ports = [161]
+
+    open_ports = []
+
+    for port in ports:
+        try:
+            # Créez un objet socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            # Fixez un timeout court pour la connexion
+            s.settimeout(1)
+
+            # Tentez de se connecter à l'adresse IP et au port donnés
+            s.connect((ip, port))
+            # Si la connexion réussit, le port est ouvert
+            open_ports.append(port)
+        except Exception as e:
+            print(f'Connexion exception the host must probably filtering the port. Reason: {e}')
+    return open_ports
+
+
+def scan_snmp_and_append(ip, snmp_port, active_hosts):
+    scan_result = snmp_scanner(ip=ip, ports=[snmp_port])
+    if len(scan_result) > 0:
+        active_hosts.add(ip)
+    return active_hosts
+
+
+def reformatting_version(version):
+    patterns = [
+        r'(\d+\.\d+\.\d+)',
+        r'(\d+\.\d+\.\d+)[^\d]*(\d+)',
+        r'(\d+\.\d+)[^\d]*(\d+)',
+        r'(\d+(\.\d+)*)',
+        r'(\b(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b)',
+        r'(\b(\d+\.\d+\.\d+-\d+\.\w+)\b)',
+        r'(\b(\d+)\b)',
+        r'(\b(\d+(?:\.\d+)+)\b)',
+        r'(\b([a-zA-Z]*\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b)',
+        r'(\b(\d{4}-\d{2}-\d{2})\b)',
+        r'\b(\d+\.\d+\.\d+[-\w]*)\b',
+        r'\b(\d+\.\d+\.\d+-\d+\.\w+)\b',
+        r'\b[vV]?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)\b',
+        r'==(\d+\.\d+\.\d+(?:-[a-zA-Z0-9-]+)?)$'
+    ]
+    # Define a regex pattern to match the version (digits and dots)
+    for pattern in patterns:
+        # Use re.search to find the first match in the input string
+        re.search(pattern, version)
+
+
+def coroutine_wrapper(coroutine):
+    asyncio.run(coroutine)
+
+
+def extract_info_linux(package_string):
+    # Utilisation d'une expression régulière pour extraire le nom, la version et l'architecture sous Linux
+    pattern = r'^(.*?)_([^_]+)_([^\s]+)$'
+    match = re.match(pattern, package_string)
+
+    if match:
+        name = match.group(1)
+        version = match.group(2)
+        architecture = match.group(3)
+        return {"name": name, "version": version, "arch": architecture}
+    else:
+        return None
+
+
+def extract_info_windows(package_string):
+    try:
+        # Essayer de décoder la chaîne hexadécimale
+        decoded_string = binascii.unhexlify(package_string[2:]).decode('latin-1')
+
+        # Utilisation d'une expression régulière pour extraire le nom, la version et l'architecture sous Windows
+        pattern = r'^(.*?)\s*-\s*(.*?)\s*\((.*?)\)$'
+        match = re.match(pattern, decoded_string)
+
+        if match:
+            name = match.group(1)
+            version = match.group(2)
+            architecture = match.group(3)
+            return {"name": name, "version": version, "architecture": architecture}
+        else:
+            return {"name": decoded_string, "version": None, "architecture": None}
+    except (binascii.Error, ValueError):
+        # La chaîne n'est pas hexadécimale, traiter comme une chaîne normale
+        pattern = r'^(.*?)\s*-\s*(.*?)\s*\((.*?)\)$'
+        match = re.match(pattern, package_string)
+
+        if match:
+            name = match.group(1)
+            version = match.group(2)
+            architecture = match.group(3)
+            return {"name": name, "version": version, "architecture": architecture}
+        else:
+            return {"name": package_string, "version": None, "architecture": None}
+
+
+def extract_windows_host_info(input_str):
+    # Expression régulière pour extraire l'architecture matérielle (premier mot après "Hardware:")
+    hardware_architecture_pattern = r'Hardware:\s(\S+)'
+
+    # Expression régulière pour extraire les informations logicielles
+    software_pattern = r'Software:\s(.*?)\sVersion\s(\d+\.\d+).*\(Build\s(\d+)\s.*\)$'
+
+    # Rechercher les correspondances dans la chaîne d'entrée
+    hardware_architecture_match = re.search(hardware_architecture_pattern, input_str, re.IGNORECASE)
+    software_match = re.search(software_pattern, input_str)
+
+    # Extraire l'architecture matérielle
+    hardware_architecture = hardware_architecture_match.group(1).strip() if hardware_architecture_match else None
+
+    # Extraire les informations logicielles
+    software_name = software_match.group(1).strip() if software_match else None
+    software_version = software_match.group(2).strip() if software_match else None
+    software_build = software_match.group(3).strip() if software_match else None
+
+    return {
+        "arch": hardware_architecture,
+        "os_name": software_name,
+        "kernel_version": software_version,
+        "build": software_build
+    }
+
+
+def extract_info_macos(package_string):
+    # Utilisation d'une expression régulière pour extraire le nom et la version sous macOS
+    pattern = r'^(.*?)\s+(\S+)\s*$'
+    match = re.match(pattern, package_string)
+
+    if match:
+        name = match.group(1)
+        version = match.group(2)
+        if '(null)' in version:
+            version = None
+        if '(null)' in name:
+            name = None
+        return {"name": name, "version": version, "arch": None}
+    else:
+        return None
+
+
+async def get_packages_async(hostname, community, os_name):
+    var_bind = '1.3.6.1.2.1.25.6.3.1.2'
+
+    def parse_version_append(ver, res, host):
+        ver = parse_version(ver)
+        d = {
+            "name": pkg_info['name'],
+            "version": ver,
+        }
+        res.append(d)
+
+    iterator = await snmp_query_v2(var_bind=var_bind, hostname=hostname, community=community)
+    result = []
+    parsed_values = await parse_snmp_response(iterator, var_bind)
+    threads = []
+    extract_fnc = extract_info_windows
+    if os_name == "linux":
+        extract_fnc = extract_info_linux
+    else:
+        extract_fnc = extract_info_macos
+
+    for value in parsed_values:
+        pretty_value = value.prettyPrint()
+        pkg_info = extract_fnc(pretty_value)
+        if pkg_info:
+            thread = threading.Thread(target=parse_version_append,
+                                      args=(pkg_info['version'], result, hostname))
+            thread.start()
+            threads.append(thread)
+
+    for thread in threads:
+        thread.join()
+    return result
+
+
+async def get_host_info_async(hostname, community):
+    var_binds = {
+        'sys_hostname_bind': '1.3.6.1.2.1.1.5.0',
+        'sys_descr_bind': '1.3.6.1.2.1.1.1.0'
+    }
+    result = {}
+    for var_bind_name, var_bind_value in var_binds.items():
+        iterator = await snmp_get_query_v2(var_bind=var_bind_value, hostname=hostname, community=community)
+        parsed_values = await parse_snmp_response(iterator, var_bind_value)
+        for value in parsed_values:
+            value = value.prettyPrint()
+            lower_value = value.lower()
+            if var_bind_name == 'sys_hostname_bind':
+                result["host_name"] = value
+            elif var_bind_name == 'sys_descr_bind':
+                if "windows" in lower_value:
+                    info = extract_windows_host_info(value)
+                    result["os_name"] = info.get("os_name")
+                    result["kernel_version"] = info.get("kernel_version")
+                    result["arch"] = info.get("arch")
+                    result["build"] = info.get("build")
+                elif "darwin" in lower_value:
+                    partitioned = value.split()
+                    if partitioned:
+                        result["os_name"] = partitioned[0]
+                        result["kernel_version"] = partitioned[2]
+                        result["arch"] = partitioned[-1]
+                elif "linux" in lower_value:
+                    partitioned = value.split()
+                    if partitioned:
+                        result["os_name"] = partitioned[0]
+                        result["kernel_version"] = partitioned[2]
+                        result["arch"] = partitioned[-1]
+                else:
+                    print("Cannot parse unix based host informations.")
+    return result
+
+
+async def parse_snmp_response(iterator, var_bind):
+    def sub_thread_iter(bind, var, res, stop):
+        oid, value = bind
+        if var not in str(oid):
+            stop.set()  # Utilisez .set() pour définir la variable de contrôle à True
+        else:
+            res.append(value)
+
+    def threaded_iterator(indication, status, binds, stop, res, var_b):
+        if indication:
+            pass
+        elif status:
+            pass
+        else:
+            sub_threads = []
+            for bind in binds:
+                th = threading.Thread(target=sub_thread_iter, args=(bind, var_b, res, stop))
+                th.start()
+                if stop.is_set():  # Utilisez .is_set() pour vérifier la variable de contrôle
+                    break
+                sub_threads.append(th)
+
+            for th in sub_threads:
+                th.join()
+
+    result = []
+    stop_loop = threading.Event()  # Utilisez un objet Event pour la variable de contrôle
+    threads = []
+    for error_indication, error_status, error_index, var_binds in iterator:
+        thread = threading.Thread(target=threaded_iterator,
+                                  args=(error_indication, error_status, var_binds, stop_loop, result, var_bind))
+        thread.start()
+        if stop_loop.is_set():  # Utilisez .is_set() pour vérifier la variable de contrôle
+            break
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
+    return result
+
+
+async def snmp_query_v2(var_bind, hostname, community="public"):
+    snmp_engine = SnmpEngine()
+    return nextCmd(
+        snmp_engine,
+        CommunityData(community),
+        UdpTransportTarget((hostname, 161)),
+        ContextData(),
+        ObjectType(ObjectIdentity(var_bind)),
+    )
+
+
+async def snmp_get_query_v2(var_bind, hostname, community="public"):
+    snmp_engine = SnmpEngine()
+    return getCmd(
+        snmp_engine,
+        CommunityData(community),
+        UdpTransportTarget((hostname, 161)),
+        ContextData(),
+        ObjectType(ObjectIdentity(var_bind)),
+    )
+
+
+async def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
+                        priv_protocol=usmAesCfb128Protocol):
+    snmp_engine = SnmpEngine()
+    return nextCmd(
+        snmp_engine,
+        UsmUserData(username, auth_key, priv_key, auth_protocol, priv_protocol),
+        UdpTransportTarget(hostname),
+        ContextData(),
+        ObjectType(ObjectIdentity(var_bind)),
+    )
+
+
+def scan_up_host_and_append(ip, active_hosts):
+    active = is_ip_active(ip=ip, all_active=True)
+    if active:
+        active_hosts.add(ip)
+    return active_hosts
+
+
+def get_snmp_hosts(network):
+    cfg = Configuration()
+    config = cfg.create(config_file_path=configFile)
+    active_hosts = set()
+    cidr = config.get_value('network', 'cidr', default=24)
+    snmp_port = config.get_value('network', 'snmp', 'port', default=161)
+
+    if not network:
+        raise ValueError("The network ip address must be provided.")
+
+    if not snmp_port:
+        raise ValueError("The configured snmp port must be provided.")
+
+    hosts = get_possible_active_hosts(ip_address=network, cidr=cidr)
+
+    threads = []
+    for host in hosts:
+        thread = threading.Thread(target=scan_snmp_and_append, args=(host, snmp_port, active_hosts))
+        thread.start()
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
 
     return active_hosts
 
 
-"""
-    Host Query by snmp
-"""
-def getting_stacks_by_host_snmp(active_hosts,community):
-
-    hosts_report = []
-
+async def getting_stacks_by_host_snmp(active_hosts, community):
+    hosts_report = {}
     for host in active_hosts:
-        
-        stacks = []
-
-        commande_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s 1.3.6.1.2.1.25.6.3.1.2" %(community, host))
-        
-        if commande_output[0] == 0:
-            
-            mibs = commande_output[1].split('\n')
-            
-            for mib in mibs :
-                try :
-                    stack = mib.split('"')[1]
-
-                    versions_info = stack.split("-")[-2:]
-                    stack_names =  stack.split("-")[:-2]
-                except :
-                    pass
-
-                try :
-                        
-                    if versions_info[0][0].isdigit() : 
-                      
-                        stacks.append({
-                            "name": "-".join(stack_names) , 
-                            "version": "-".join(versions_info)
-                        })
-                        
-                        
-                    elif versions_info[1][0].isdigit():
-
-                        stacks.append({
-                            "name": "-".join(stack_names,versions_info[0]) , 
-                            "version": versions_info[1]
-                        })
-                    
-                    else:
-
-                        stacks.append({
-                            "name": stack , 
-                            "version": stack
-                        })
-
-                except: 
-                    pass
-
-        commande_output = subprocess.getstatusoutput("snmpwalk -v1 -c %s %s .1.3.6.1.2.1.1.1.0" %(community, host))
-        
         try:
-            os_info = re.search('"(.*)"',commande_output[1])
-            if os_info is not None :
-                os_info = os_info.group(1)
-            else :
-                os_info = commande_output[1].split("#")[0]
-
+            start = time.perf_counter()
+            os_info = await get_host_info_async(host, community)
+            end = time.perf_counter()
+            if os_info:
+                start = time.perf_counter()
+                packages = await get_packages_async(host, community, os_name=os_info.get('os_name').lower())
+                end = time.perf_counter()
+                hosts_report[host] = {
+                    "os": os_info,
+                    "ipv4": host,
+                    "packages": packages
+                }
         except:
-            os_info = commande_output[1].split("#")[0]
-
-        if len(os_info) >= 50: 
-            os_info = os_info.split("#")[0]
-        
-        hosts_report.append({
-            "os":os_info,
-            "ipv4":host,
-            "packages":stacks
-        })       
-
-    return hosts_report
+            pass
+    return json.dumps(hosts_report)
 
 
 """
     Display an error message
 """
-def request_error() :
-    print("\n❌️ Unable to join th server ❌️\n")
-    print("   try one of the following solutions : \n")
-    print("   👉️Try later")
-    print("   👉️Verify your network connection")
-    print("\nPlease contact +229 21604252 - 91911591 or support@watchman.bj if the problem persists.\n")
-    sys.exit(1)
+
+
+def request_error(error):
+    click.echo(error)
+    custom_exit(
+        """
+            Unable to join the server !
+            Try one of the following solutions:
+            \t\t- Try later
+            \t\t- Verify your network connection
+            Contact support at support@watchman.bj, if the problem persists.\n
+        """
+    )
 
 
 """
     Get each container Name and image  
 """
-def get_container_name_and_images():
 
+
+def get_container_name_and_images():
     containers_info = {}
 
     try:
-        commande_output = subprocess.run(
-            ["docker", "ps"], stdout=subprocess.PIPE)
-        commande_output = commande_output.stdout.decode("utf-8")
+        command_output = subprocess.run(
+            ["docker", "ps"], stdout=subprocess.PIPE, capture_output=True, text=True)
+        command_output = command_output.stdout
 
-        containers_general_data = commande_output.split('\n')
+        containers_general_data = command_output.split('\n')
         containers_general_data.pop(0)
 
         for el in containers_general_data:
             if el != '':
                 tab = el.split(' ')
-                if "alpine" in tab[3] or "ubuntu" in tab[3] or "debian" in tab[3] or "rehl" in tab[3] or "centos" in tab[3]:
-                    
+                if "alpine" in tab[3] or "ubuntu" in tab[3] or "debian" in tab[3] or "rehl" in tab[3] or "centos" in \
+                        tab[3]:
                     containers_info[tab[-1]] = tab[3]
     except:
         pass
@@ -178,54 +767,84 @@ def get_container_name_and_images():
 
 
 """
-    Get packages and version result from commande line
+    Get packages and version result from command line
 """
-def get_host_packages(commande, host_os, file, container):
 
+
+def get_host_packages(command, host_os, file, container):
     if host_os == 'Windows':
 
-        commande_output = subprocess.check_output(commande, text=True)
+        command_output = subprocess.check_output(command, text=True)
 
-        output_list = commande_output.split('\n')
+        output_list = command_output.split('\n')
 
         packages_versions = []
-        
+
         for el in output_list:
-        
+
             el = el.split()
 
             el = [i for i in el if i != '']  # purge space
-            
+
             try:
-                 
+
                 if el[-1][0].isdigit() and el[-1][-1].isdigit():
+                    version = reformatting_version(el[-1])
                     p_v = {
                         "name": " ".join(el[:-1]),
-                        "version": el[-1]
+                        "version": version
                     }
-                    if p_v["name"] != "" :
+                    if p_v["name"] != "":
                         packages_versions.append(p_v)
-                                
+
             except:
                 pass
+    elif host_os == "macOS":
+        packages_versions = []
+        status, output = subprocess.getstatusoutput(command)
+
+        if status == 0:
+            # The command ran successfully, split the output into a list of package names
+            installed_packages = output.splitlines()
+
+            # Print package names and their versions
+            for package in installed_packages:
+                # Run 'pkgutil --pkg-info' to get package version
+                status, package_info = subprocess.getstatusoutput(f'pkgutil --pkg-info {package}')
+                if status == 0:
+                    # Extract the package version from the package_info string
+                    version_line = [line for line in package_info.splitlines() if line.startswith("version: ")]
+                    if version_line:
+                        package_version = version_line[0].replace("version: ", "")
+                        package_name = package.split('.')[-1]
+                        packages_versions.append(
+                            {
+                                "name": package_name,
+                                "version": package_version
+                            }
+                        )
+                    else:
+                        packages_versions.append(
+                            {
+                                "name": package,
+                                "version": None
+                            }
+                        )
+                else:
+                    print(f"Error retrieving package info for {package}: {package_info}")
+        else:
+            # An error occurred
+            print(f"Error running 'pkgutil --pkgs': {output}")
     else:
-
-        commande_output = subprocess.Popen(commande, stdout=subprocess.PIPE)
-
-        packages_versions = format_pkg_version(commande_output, host_os)
-
+        command_output = subprocess.Popen(command, stdout=subprocess.PIPE)
+        packages_versions = format_pkg_version(command_output, host_os)
     if container is None:
-
         file.writelines([
-
             "\"os\" : \"%s\" , " % host_os,
             "\"packages\" : %s ," % packages_versions,
             "\"containers\" : [ "
-
         ])
-
-        
-        print("\n\n❑ list Package for %s successfull !!!\n" % host_os)
+        click.echo("\n\n + Listing Packages for %s successfully !!!\n" % host_os)
     else:
 
         file.writelines([
@@ -237,22 +856,30 @@ def get_host_packages(commande, host_os, file, container):
 
         ])
 
-        print(
-            f" + list Package for {container} container in {host_os} successfull !!!\n")
+        click.echo(f" + Listing Packages for {container} container in {host_os} successfully !!!\n")
 
 
 """
     Get the host os 
 """
-def get_host_os():
 
+
+def get_host_os():
     if pt.system() == 'Windows':
         return 'Windows'
+    elif pt.system() == 'Darwin':
+        command_output = subprocess.run(["sw_vers"], stdout=subprocess.PIPE)
+        command_output_lines = command_output.stdout.decode("utf-8").split('\n')
+        mac = re.search("macOS", str(command_output_lines))
+        if mac:
+            return "macOS"
+        else:
+            print("ProductName not found in the input data.")
 
-    commande_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
-    commande_output_lines = commande_output.stdout.decode("utf-8").split('\n')
+    command_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
+    command_output_lines = command_output.stdout.decode("utf-8").split('\n')
 
-    for line in commande_output_lines:
+    for line in command_output_lines:
         if "system" in line.lower():
             return line.split(':')[-1].lower().lstrip()
 
@@ -260,35 +887,39 @@ def get_host_os():
 """
     Format the package name and version for usage 
 """
-def format_pkg_version(commande1_output, host_os):
 
+
+def format_pkg_version(command1_output, host_os):
     if "ubuntu" in host_os or "debian" in host_os:
         output = subprocess.check_output(
-            ["awk", "{print $2,$3}", "OFS=^^"], stdin=commande1_output.stdout)
+            ["awk", "{print $2, $3}", "OFS=^^"], stdin=command1_output.stdout)
     elif "alpine" in host_os:
         output = subprocess.check_output(
-            ["awk", "{print $1}"], stdin=commande1_output.stdout)
+            ["awk", "{print $1}"], stdin=command1_output.stdout)
     elif "centos" in host_os:
         output = subprocess.check_output(
-            ["awk", "{print $1,$2}", "OFS=^^"], stdin=commande1_output.stdout)
- 
-    commande1_output.wait()
+            ["awk", "{print $1,$2}", "OFS=^^"], stdin=command1_output.stdout)
+    elif "macOS" in host_os:
+        output = subprocess.check_output(
+            ["cut", "-d", "\t", "-f", "1,2"], stdin=command1_output.stdout)
+
+    command1_output.wait()
 
     pkg_versions = output.decode("utf-8").split("\n")
 
     tab = []
 
     if host_os.split(' ')[0] in ["ubuntu", "debian", "centos"]:
-
         for pkg_version in pkg_versions:
-
             try:
                 p_v = pkg_version.split('^^')
 
                 if p_v[1][0].isdigit():
+                    version = reformatting_version(p_v[1])
+                    name = p_v[0].split(":")
                     tab.append({
-                        "name": p_v[0],
-                        "version": p_v[1]
+                        "name": name[0],
+                        "version": version
                     })
             except:
                 pass
@@ -305,6 +936,8 @@ def format_pkg_version(commande1_output, host_os):
                 name = "-".join(p_v[:-2])
                 version = "-".join(p_v[-2:])
 
+                version = reformatting_version(version)
+
                 tab.append({
                     "name": name,
                     "version": version
@@ -312,24 +945,24 @@ def format_pkg_version(commande1_output, host_os):
 
             except:
                 pass
-    
+
     return tab
 
 
 """
-    Collect package name and version from commande line
+    Collect package name and version from command line
 """
+
+
 def network_host_audit(file):
-
     host_os = get_host_os()
-
     if host_os == 'Windows':
-
         get_host_packages(
-            ["powershell", "-Command", "Get-Package" ,"|" , "Select" , "Name,Version" ], host_os, file, None)
-
+            ["powershell", "-Command", "Get-Package", "|", "Select", "Name,Version"], host_os, file, None)
+    elif host_os == "macOS":
+        get_host_packages("pkgutil --pkgs",
+                          host_os, file, None)
     else:
-
         if "alpine" in host_os:
             get_host_packages(["apk", "info", "-vv"], host_os, file, None)
         elif "ubuntu" in host_os:
@@ -341,9 +974,8 @@ def network_host_audit(file):
         elif "centos" in host_os:
             get_host_packages(["yum", "list", "installed"],
                               host_os, file, None)
-        else: 
-            print("😓️ Sorry, this type system is not supported yet;\n")
-            sys.exit(1)
+        else:
+            custom_exit(f"The actual Operating System {host_os} is not supported yet.\n")
     #########
     ##
     # start container inspection
@@ -360,186 +992,320 @@ def network_host_audit(file):
 
         if "alpine" in image:
             get_host_packages(["docker", "exec", container,
-                              "apk", "info", "-vv"], "alpine", file, container)
-            # write a coma after the closed bracket only if it rest object to write
+                               "apk", "info", "-vv"], "alpine", file, container)
+            # write a comma after the closed bracket only if it is not the last object to write
             if container != last_container:
-               
                 file.write(",")
 
         elif "ubuntu" in image:
             get_host_packages(["docker", "exec", container,
-                              "dpkg", "-l"], "ubuntu", file, container)
-            # write a coma after the closed bracket only if it rest object to write
+                               "dpkg", "-l"], "ubuntu", file, container)
+            # write a comma after the closed bracket only if it is not the last object to write
             if container != last_container:
                 file.write(",")
 
         elif "debian" in image:
             get_host_packages(["docker", "exec", container,
-                              "dpkg", "-l"], "debian", file, container)
-            # write a coma after the closed bracket only if it rest object to write
+                               "dpkg", "-l"], "debian", file, container)
+            # write a comma after the closed bracket only if it is not the last object to write
             if container != last_container:
                 file.write(",")
 
         elif "rehl" in image:
             get_host_packages(["docker", "exec", container,
-                              "rpm", "-qa"], "rehl", file, container)
-            # write a coma after the closed bracket only if it rest object to write
+                               "rpm", "-qa"], "rehl", file, container)
+            # write a comma after the closed bracket only if it is not the last object to write
             if container != last_container:
                 file.write(",")
 
         elif "centos" in image:
             get_host_packages(["docker", "exec", container, "yum",
-                              "list", "installed"], "centos", file, container)
-            # write a coma after the closed bracket only if it rest object to write
+                               "list", "installed"], "centos", file, container)
+            # write a comma after the closed bracket only if it is not the last object to write
             if container != last_container:
                 file.write(",")
-        
+
 
 """
     Format properly the content of the reported file to json syntax
 """
-def format_json_report(client_id, client_secret,file):
 
+
+def format_json_report(client_id, client_secret, file):
     file_content = ""
 
     with open(file, "r+") as file_in_read_mode:
         file_content = file_in_read_mode.read()
-    file_in_read_mode.close()
 
     file_content = re.sub('\'', '"', file_content)
 
-    with open(file, "w+") as file_in_write_mode:
-        file_in_write_mode.write("")
-    file_in_write_mode.close()
-
     try:
-        
-        ans = requests.post(
-            url=WEBHOOK_URL , 
+        response = requests.post(
+            url=WEBHOOK_URL,
             headers={
-                        "AGENT-ID":client_id,
-                        "AGENT-SECRET":client_secret 
-                    },
-            data= {
-                    "data": file_content
-                }
-            )
+                "AGENT-ID": client_id,
+                "AGENT-SECRET": client_secret
+            },
+            data={
+                "data": json.dumps(file_content)
+            }
+        )
+        if response.status_code != 200:
+            click.echo("\nExecution error️")
+            click.echo("Message: ", response.json()["detail"])
 
-        if ans.status_code != 200:
-            print("\n❌️ Execution error ❌️")
-            print("   Detail : ", ans.json()["detail"])
+        with open(file, "w+") as file_in_write_mode:
+            file_in_write_mode.write("")
+    except requests.exceptions.RequestException as e:
+        print(f"error on request {e}")
+        request_error(error=e)
 
 
-    except:
-
-        request_error()
-
-
-def main():
-
-    """
-        Getting params give for the agent execution
-    """
-    env_path=""
+def read_config(config_file: str = None):
+    if not config_file:
+        file_name = configFile
+    else:
+        file_name = config_file
 
     try:
-       
-        if len(sys.argv) ==6 :
-            if "snmp" in sys.argv[1] :
-                snmp_mode = True
-                snmp_arg = sys.argv[1]
-                target_address = sys.argv[2]
-                client_id = sys.argv[3]
-                client_secret = sys.argv[4]
-                env_path = sys.argv[5]
-        elif len(sys.argv) ==4:
-            snmp_mode = False
-            client_id = sys.argv[1]
-            client_secret = sys.argv[2]
-            env_path = sys.argv[3]
-    except:
-        print("\n❌️ Execution error ❌️")
-        print("   Detail : Arguments required for script execution.\n")
-        sys.exit(1)
-
-    """
-        Load URLs from env file
-    """
-    get_env_vars(env_path)
+        with open(file_name, 'r') as config:
+            loaded_config_data = yaml.safe_load(config)
+        return loaded_config_data
+    except FileNotFoundError:
+        print(f"Config file '{file_name}' not found.")
+        return None
+    except Exception as e:
+        print(f"Cannot read config file {file_name}. This is error {e}")
+        return None
 
 
-    """
-        Authentication with the AGENT-ID and AGENT-SECRET
-    """
-    token = None 
-    
+def update_config_with_nested(config, updated_config):
+    if config:
+        for key, value in updated_config.items():
+            if key in config and isinstance(config[key], dict) and isinstance(value, dict):
+                # Recursively update nested dictionaries
+                update_config_with_nested(config[key], value)
+            elif key in config and isinstance(config[key], list) and isinstance(value, list):
+                # Extend existing lists with new values
+                config[key].extend(value)
+            else:
+                # Update or add a new key-value pair
+                config[key] = value
+
+
+def update_config(file_name, loaded_config_data, new_config):
+    update_config_with_nested(loaded_config_data, new_config)
     try:
-        
-        ans = requests.get(CONNECT_URL, headers={
-           "AGENT-ID":client_id,
-           "AGENT-SECRET":client_secret
+        with open(file_name, 'w') as fichier:
+            yaml.dump(loaded_config_data, fichier, default_flow_style=False)
+        print(f"Configs successfully written in '{file_name}'.")
+    except yaml.YAMLError as e:
+        print(f"Cannot write config file. {e}")
+
+
+def run_not_network(client_id, secret_key):
+    """
+        By cmd execution
+    """
+    with open("data", "w+") as file:
+        # write the opening bracket of the json object
+        file.writelines(["{"])
+
+        file.writelines(["  \"%s\" : { " % pt.node(), ])
+
+        network_host_audit(file)
+
+        file.writelines([" ] } } "])
+
+    file.close()
+    format_json_report(client_id, secret_key, "data")
+
+
+def run_network(community, device, client_id, secret_key):
+    """
+        By snmp mibs 
+    """
+    if community is None:
+        custom_exit("Execution error: the snmp community is not specified.\n")
+    else:
+        try:
+            hosts = get_snmp_hosts(device)
+        except Exception as e:
+            custom_exit(f"Execution error: {e}")
+        report = asyncio.run(getting_stacks_by_host_snmp(hosts, community))
+
+        with open("data", "w+") as file:
+            file.write("%s" % report)
+        file.close()
+        format_json_report(client_id, secret_key, "data")
+
+
+@click.command(cls=WatchmanCLI)
+def cli():
+    pass
+
+
+@cli.group(name="configure", help='Save configuration variables to the config file')
+def configure():
+    pass
+
+
+@configure.command(name="connect", help='Save connect configuration variables')
+@click.option("-m", "--mode", type=str, default='network',
+              help="Runtime mode for agent execution [network/agent]. Default: agent", required=False)
+@click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
+@click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
+def configure_connect(mode, client_id, client_secret):
+    cfg = Configuration()
+    config = cfg.create(config_file_path=configFile)
+    section = 'runtime'
+
+    if mode:
+        config.set_value(section, 'mode', value=mode)
+
+    if client_id:
+        config.set_value(section, 'client_id', value=client_id)
+
+    if client_secret:
+        config.set_value(section, 'secret_key', value=client_secret)
+
+
+@configure.command(name="network", help='Save network configuration variables')
+@click.option("-t", "--network-target", type=IpType(), help="The network target ip address.", required=False)
+@click.option("-m", "--cidr", type=int, help="The mask in CIDR annotation. Default: 24 \neg: --cidr 24", default=24,
+              required=True)
+@click.option("-c", "--snmp-community", type=str, help="SNMP community used to authenticate the SNMP management "
+                                                       "station.\nDefault: 'public'", required=1, default='public')
+@click.option("-p", "--snmp-port", type=int, help="SNMP port on which clients listen to. \n Default: 161",
+              required=True, default=161)
+@click.option("-u", "--snmp-user", type=str, help="SNMP authentication user ", required=False)
+@click.option("-a", "--snmp-auth-key", type=str, help="SNMP authentication key", required=False)
+@click.option("-s", "--snmp-priv-key", type=str, help="SNMP private key", required=False)
+@click.option("-e", "--exempt", type=str, help="Device list to ignore when getting stacks. eg: --exempt "
+                                               "192.168.1.12,", required=False)
+def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, snmp_auth_key, snmp_priv_key, snmp_user):
+    cfg = Configuration()
+    config = cfg.create(config_file_path=configFile)
+    section = 'network'
+    if snmp_community:
+        config.set_value(section, 'snmp', 'v2', 'community', value=snmp_community)
+
+    if snmp_user:
+        config.set_value(section, 'snmp', 'v3', 'user', value=snmp_user)
+
+    if snmp_auth_key:
+        config.set_value(section, 'snmp', 'v3', 'auth_key', value=snmp_auth_key)
+
+    if snmp_priv_key:
+        config.set_value(section, 'snmp', 'v3', 'priv_key', value=snmp_priv_key)
+
+    if exempt:
+        exempt = [w for w in str(exempt).strip().split(',') if w != ""]
+        cfg_exempt = config.get_value(section, 'exempt', default=[])
+        if cfg_exempt:
+            cfg_exempt.extend(exempt)
+        else:
+            cfg_exempt = exempt
+
+        config.set_value(section, 'exempt', value=list(set(cfg_exempt)))
+
+    if snmp_port:
+        config.set_value(section, 'snmp', 'port', value=snmp_port)
+        """ config.set_value(section, 'snmp', 'v2', 'port', value=snmp_port)
+        config.set_value(section, 'snmp', 'v3', 'port', value=snmp_port)"""
+
+    if network_target:
+        config.set_value(section, 'ip', value=network_target)
+
+    if cidr:
+        config.set_value(section, 'cidr', value=cidr)
+
+
+@configure.command(name="schedule", help='Save schedule configuration variables')
+@click.option("-m", "--minute", type=int, help="Execution every minute. Default: 15", required=True)
+@click.option("-h", "--hour", type=int, help="Execution every hour.", required=False)
+@click.option("-d", "--day", type=int, help="Execution every day.", required=False)
+@click.option("-mo", "--month", type=int, help="Execution every month.", required=False)
+def configure_schedule(minute, hour, day, month):
+    cfg = Configuration()
+    config = cfg.create(config_file_path=configFile)
+    section = 'schedule'
+
+    if minute:
+        config.set_value(section, 'minute', value=minute)
+    else:
+        config.set_value(section, 'minute', value=15)
+
+    if hour:
+        config.set_value(section, 'hour', value=hour)
+    else:
+        config.set_value(section, 'hour', value='*')
+
+    if day:
+        config.set_value(section, 'day', value=day)
+    else:
+        config.set_value(section, 'day', value='*')
+
+    if month:
+        config.set_value(section, 'month', value=month)
+    else:
+        config.set_value(section, 'month', value='*')
+
+
+@cli.command(name='run', help='Attach monitoring to cron job and watch for stacks')
+def run():
+    cfg = Configuration()
+    config = cfg.create(config_file_path=configFile)
+
+    mode = config.get_value('runtime', 'mode', default='network')
+    client_id = config.get_value('runtime', 'client_id')
+    secret_key = config.get_value('runtime', 'secret_key')
+    if None in [mode, client_id, secret_key]:
+        click.echo("\nPlease configure agent! Check help to see how to configure.")
+
+    community = config.get_value('network', 'snmp', 'v2', 'community', default='public')
+    network = config.get_value('network', 'ip')
+    try:
+        response = requests.get(CONNECT_URL, headers={
+            "AGENT-ID": client_id,
+            "AGENT-SECRET": secret_key
         })
 
-
-        if ans.status_code != 200:
-            print("\n❌️ Authentication error  ❌️")
-            print("   Detail : ", ans.json()["detail"])
-           
-        else :
-            token = ans.json()["token"]
-
-    except:
-        request_error()
-    
-    if token is None :
-        sys.exit(1)
-
-
+        click.echo(f"Detail : {response} ")
+        if response.status_code == 200:
+            token = response.json()["token"]
+            if token:
+                try:
+                    # keyring may fail
+                    keyring.set_password("watchmanAgent", "token", token)
+                except NoKeyringError as e:
+                    # use db method
+                    with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db",
+                               mode="write") as obj:
+                        obj.insert_value("token", token)
+        else:
+            click.echo("\nRUN")
+            click.echo("\nAuthentication failed!!")
+            click.echo(f"Detail Body : {response.json()} ")
+    except requests.exceptions.RequestException as e:
+        request_error(error=e)
+    try:
+        if keyring.get_password("watchmanAgent", "token") is None:
+            custom_exit("Authentication failed!!")
+            custom_exit("TOKEN")
+    except NoKeyringError as e:
+        # use db method
+        with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db") as obj:
+            if obj.read_value("token") is None:
+                custom_exit("Authentication failed!!")
     """
         Getting stacks from the target 
     """
-    if not snmp_mode : 
-        
-        """
-            By cmd execution
-        """
-
-        with open("__", "w+") as file:
-
-            # write the opening braket of the json object
-            file.writelines(["{"])
-
-            file.writelines(["  \"%s\" : { " % pt.node(), ])
-
-            network_host_audit(file)
-
-            file.writelines([" ] } } "])
-
-        file.close()
-
-        format_json_report(client_id, client_secret,"__")
-
-    else :
-
-        """
-            By snmp mibs 
-        """
-        try : 
-            community = snmp_arg.split(":")[1]
-        except : 
-            print("\n❌️ Execution error ❌️")
-            print("   Detail : snmp community not specify.\n")
-            sys.exit(1)
-
-        hosts = get_network_hosts(target_address)
-        
-        report = getting_stacks_by_host_snmp(hosts,community)
+    if mode == 'agent':
+        run_not_network(client_id=client_id, secret_key=secret_key)
+    else:
+        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key)
 
 
-        with open("_", "w+") as file:
-            file.write("%s" % report)
-        file.close()
-        
-        format_json_report(client_id, client_secret,"_")
-
-main()
+if __name__ == "__main__":
+    cli()
