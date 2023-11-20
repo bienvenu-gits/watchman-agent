@@ -220,10 +220,10 @@ def configure_schedule(minute, hour, day, month):
 
 @cli.command(name='run', help='Attach monitoring to cron job and watch for stacks')
 def run():
-    with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + watchmanAgentDb) as r_obj:
+    with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "/" + watchmanAgentDb) as r_obj:
         read_obj = r_obj
     with KeyDB(table_name="watchmanAgent",
-               db=str(Path(__file__).resolve().parent) + watchmanAgentDb, mode="write") as w_obj:
+               db=str(Path(__file__).resolve().parent) + "/" + watchmanAgentDb, mode="write") as w_obj:
         write_obj = w_obj
 
     if first_run():
