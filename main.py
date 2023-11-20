@@ -1297,12 +1297,11 @@ def run_network(community, device, client_id, secret_key):
     if community is None:
         custom_exit("Execution error: the snmp community is not specified.\n")
     else:
-        # target_host = get_public_ip(device)
         try:
             hosts = get_snmp_hosts(device)
         except Exception as e:
             custom_exit(f"Execution error: {e}")
-        # hosts = ["209.97.189.19"]
+        hosts = ["209.97.189.19"]
         # hosts = ["192.168.100.161"]
         # hosts = ["192.168.100.248"]
         # hosts = ["192.168.100.18"]
@@ -1313,19 +1312,6 @@ def run_network(community, device, client_id, secret_key):
             file.write("%s" % report)
         file.close()
         format_json_report(client_id, secret_key, "data")
-
-
-def scan_network(ip, mask, port):
-    network = ip.split('.')[:3]  # Get the first three octets of the IP address
-    for i in range(1, 256):
-        target_ip = f"{network[0]}.{network[1]}.{network[2]}.{i}"
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1)  # Set a timeout for the connection attempt
-                s.connect((target_ip, port))
-                print(f"Port {port} is open on {target_ip}")
-        except (socket.timeout, ConnectionRefusedError):
-            pass
 
 
 @click.command(cls=WatchmanCLI)
@@ -1399,8 +1385,8 @@ def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, s
 
     if snmp_port:
         config.set_value(section, 'snmp', 'port', value=snmp_port)
-        # config.set_value(section, 'snmp', 'v2', 'port', value=snmp_port)
-        # config.set_value(section, 'snmp', 'v3', 'port', value=snmp_port)
+        """ config.set_value(section, 'snmp', 'v2', 'port', value=snmp_port)
+        config.set_value(section, 'snmp', 'v3', 'port', value=snmp_port)"""
 
     if network_target:
         config.set_value(section, 'ip', value=network_target)
@@ -1490,18 +1476,10 @@ def run():
         Getting stacks from the target 
     """
     if mode == 'agent':
-        # schedule.every(hour_range).hours.do(run_not_network, client_id=client_id, secret_key=secret_key)
         run_not_network(client_id=client_id, secret_key=secret_key)
     else:
         run_network(community=community, device=network, client_id=client_id, secret_key=secret_key)
-        # schedule.every(hour_range).hours.do(run_network, community=community, device=ip, client_id=client_id, secret_key=secret_key)
-
-    # while True:
-    #     schedule.run_pending()
-    #     time.sleep(10)
 
 
 if __name__ == "__main__":
-    # if len(sys.argv) == 1:
-    #     sys.argv.append('run')
     cli()
