@@ -6,13 +6,15 @@ setup(
     author="Watchman",
     author_email="support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
-    packages=["watchman_agent"],
+    packages=find_packages(
+        where='watchman_agent',
+        include=['watchman_agent.*']
+    ),
     python_requires='>=3.8',
     include_package_data=True,
+    # py_modules=[''],
     package_data={
-        "watchman_agent": [
-            "commands/*",  # Inclut tous les fichiers du sous-répertoire 'commands'
-        ],
+        "watchman_agent": ["commands/*"]
     },
     install_requires=[
         'requests',
