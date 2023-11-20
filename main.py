@@ -1286,7 +1286,7 @@ def run():
         else:
             click.echo("\nRUN")
             click.echo("\nAuthentication failed!!")
-            click.echo(f"Detail Body : {response.json()} ")
+            click.echo(f"{response.json()}")
     except requests.exceptions.RequestException as e:
         request_error(error=e)
     try:
