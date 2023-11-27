@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import threading
-
+import csv
 import platform as pt
 import re
 import time
@@ -1061,6 +1061,33 @@ def format_json_report(client_id, client_secret, file):
         request_error(error=e)
 
 
+def export_data_to_csv(file):
+    file_content = ""
+    with open(file, "r+") as file_in_read_mode:
+        file_content = file_in_read_mode.read()
+    file_content = re.sub('\'', '"', file_content)
+    data = file_content
+    # Parse JSON
+    data = json.loads(data)
+    
+    first_key = next(iter(data))
+
+    # CSV file name
+    csv_file = f"first_key.csv"
+
+    # Open CSV file for writing
+    with open(csv_file, 'w', newline='') as csvfile:
+        # Create CSV writer object
+        csv_writer = csv.writer(csvfile)
+
+        # Write header
+        csv_writer.writerow(["Device", "OS", "Package Name", "Package Version"])
+
+        # Write data
+        for package in data[first_key]["packages"]:
+            csv_writer.writerow([first_key, data[first_key]["os"], package["name"], package["version"]])
+    return csv_file
+
 def read_config(config_file: str = None):
     if not config_file:
         file_name = configFile
@@ -1103,7 +1130,7 @@ def update_config(file_name, loaded_config_data, new_config):
         print(f"Cannot write config file. {e}")
 
 
-def run_not_network(client_id, secret_key):
+def run_not_network(client_id, secret_key, export):
     """
         By cmd execution
     """
@@ -1118,10 +1145,13 @@ def run_not_network(client_id, secret_key):
         file.writelines([" ] } } "])
 
     file.close()
+    if export == True:
+        export_data_to_csv("data")
+        return 
     format_json_report(client_id, secret_key, "data")
 
 
-def run_network(community, device, client_id, secret_key):
+def run_network(community, device, client_id, secret_key, export):
     """
         By snmp mibs 
     """
@@ -1137,7 +1167,13 @@ def run_network(community, device, client_id, secret_key):
         with open("data", "w+") as file:
             file.write("%s" % report)
         file.close()
+        
+        if export == True:
+            export_data_to_csv("data")
+            return 
+        
         format_json_report(client_id, secret_key, "data")
+            
 
 
 @click.command(cls=WatchmanCLI)
@@ -1153,9 +1189,11 @@ def configure():
 @configure.command(name="connect", help='Save connect configuration variables')
 @click.option("-m", "--mode", type=str, default='network',
               help="Runtime mode for agent execution [network/agent]. Default: agent", required=False)
+@click.option("-x", "--export", type=str, default='No',
+              help="This config is for exporting data on CSV or not. Default: No", required=False)
 @click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
-def configure_connect(mode, client_id, client_secret):
+def configure_connect(mode, export, client_id, client_secret):
     cfg = Configuration()
     config = cfg.create(config_file_path=configFile)
     section = 'runtime'
@@ -1165,6 +1203,12 @@ def configure_connect(mode, client_id, client_secret):
 
     if client_id:
         config.set_value(section, 'client_id', value=client_id)
+
+    if client_secret:
+        config.set_value(section, 'secret_key', value=client_secret)
+
+    if export:
+        config.set_value(section, 'export', value=export)
 
     if client_secret:
         config.set_value(section, 'secret_key', value=client_secret)
@@ -1258,6 +1302,7 @@ def run():
     config = cfg.create(config_file_path=configFile)
 
     mode = config.get_value('runtime', 'mode', default='network')
+    export = config.get_value('runtime', 'export', default='No')
     client_id = config.get_value('runtime', 'client_id')
     secret_key = config.get_value('runtime', 'secret_key')
     if None in [mode, client_id, secret_key]:
@@ -1302,9 +1347,9 @@ def run():
         Getting stacks from the target 
     """
     if mode == 'agent':
-        run_not_network(client_id=client_id, secret_key=secret_key)
+        run_not_network(client_id=client_id, secret_key=secret_key, export=export)
     else:
-        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key)
+        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key, export=export)
 
 
 if __name__ == "__main__":
