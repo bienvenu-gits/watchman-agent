@@ -10,7 +10,6 @@ import threading
 import platform as pt
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
 import socket
 import subprocess
 import yaml
@@ -54,6 +53,7 @@ class WatchmanCLI(click.Group):
             args = ['default']
         return super(WatchmanCLI, self).resolve_command(ctx, args)
 
+
 class KeyDB(object):
     def __init__(self, table_name, db, mode="read"):
         self.__db_object = None
@@ -84,6 +84,7 @@ class KeyDB(object):
     def __exit__(self, type, val, tb):
         self.__db_object.close()
 
+
 class IpType(click.ParamType):
     name = "ip"
 
@@ -101,6 +102,7 @@ class IpType(click.ParamType):
                     ctx,
                 )
         return value
+
 
 class IniFileConfiguration:
     _instance = None
@@ -141,6 +143,7 @@ class IniFileConfiguration:
     def save_config_to_file(self):
         with open(self.config_file_path, 'w') as configfile:
             self.config.write(configfile)
+
 
 class YamlFileConfiguration:
     _instance = None
@@ -197,6 +200,7 @@ class YamlFileConfiguration:
             with open(self.config_file_path, 'w') as yaml_file:
                 yaml.dump(self.config, yaml_file, default_flow_style=False)
 
+
 class Configuration:
     @staticmethod
     def create(config_file_path=configFile):
@@ -205,8 +209,10 @@ class Configuration:
         else:
             return IniFileConfiguration(config_file_path)
 
+
 def custom_exit(message: str):
     raise SystemExit(message)
+
 
 def get_possible_active_hosts(ip_address, cidr):
     if not is_valid_ip(ip_address):
@@ -235,6 +241,7 @@ def get_possible_active_hosts(ip_address, cidr):
 
     return hosts
 
+
 def is_valid_ip(ip):
     try:
         # Tentez de créer un objet IP à partir de la chaîne donnée
@@ -242,6 +249,7 @@ def is_valid_ip(ip):
         return True
     except ipaddress.AddressValueError:
         return False
+
 
 def is_ip_active(ip, all_active=False):
     try:
@@ -255,6 +263,7 @@ def is_ip_active(ip, all_active=False):
             return True
         except socket.error:
             return False
+
 
 linux_version_pattern = re.compile(
     r"^"
@@ -273,6 +282,7 @@ linux_version_pattern = re.compile(
     r"$"
 )
 irregular_version_pattern = re.compile(r'\d+(\.\d+)*')
+
 
 def parse_version(text):
     """ Semantic Versioning (SemVer)
@@ -361,6 +371,7 @@ def parse_version(text):
                     print(f'Cannot definitely parse version {text}')
             return version
 
+
 def snmp_scanner(ip, ports: list = None):
     if ports is None:
         ports = [161]
@@ -383,11 +394,13 @@ def snmp_scanner(ip, ports: list = None):
             print(f'Connexion exception the host must probably filtering the port. Reason: {e}')
     return open_ports
 
+
 def scan_snmp_and_append(ip, snmp_port, active_hosts):
     scan_result = snmp_scanner(ip=ip, ports=[snmp_port])
     if len(scan_result) > 0:
         active_hosts.add(ip)
     return active_hosts
+
 
 def reformatting_version(version):
     patterns = [
@@ -411,8 +424,10 @@ def reformatting_version(version):
         # Use re.search to find the first match in the input string
         re.search(pattern, version)
 
+
 def coroutine_wrapper(coroutine):
     asyncio.run(coroutine)
+
 
 def extract_info_linux(package_string):
     # Utilisation d'une expression régulière pour extraire le nom, la version et l'architecture sous Linux
@@ -426,6 +441,7 @@ def extract_info_linux(package_string):
         return {"name": name, "version": version, "arch": architecture}
     else:
         return None
+
 
 def extract_info_windows(package_string):
     try:
@@ -456,6 +472,7 @@ def extract_info_windows(package_string):
         else:
             return {"name": package_string, "version": None, "architecture": None}
 
+
 def extract_windows_host_info(input_str):
     # Expression régulière pour extraire l'architecture matérielle (premier mot après "Hardware:")
     hardware_architecture_pattern = r'Hardware:\s(\S+)'
@@ -482,6 +499,7 @@ def extract_windows_host_info(input_str):
         "build": software_build
     }
 
+
 def extract_info_macos(package_string):
     # Utilisation d'une expression régulière pour extraire le nom et la version sous macOS
     pattern = r'^(.*?)\s+(\S+)\s*$'
@@ -497,6 +515,7 @@ def extract_info_macos(package_string):
         return {"name": name, "version": version, "arch": None}
     else:
         return None
+
 
 async def get_packages_async(hostname, community, os_name):
     var_bind = '1.3.6.1.2.1.25.6.3.1.2'
@@ -531,6 +550,7 @@ async def get_packages_async(hostname, community, os_name):
     for thread in threads:
         thread.join()
     return result
+
 
 async def get_host_info_async(hostname, community):
     var_binds = {
@@ -568,6 +588,7 @@ async def get_host_info_async(hostname, community):
                 else:
                     print("Cannot parse unix based host informations.")
     return result
+
 
 async def parse_snmp_response(iterator, var_bind):
     def sub_thread_iter(bind, var, res, stop):
@@ -609,6 +630,7 @@ async def parse_snmp_response(iterator, var_bind):
         thread.join()
     return result
 
+
 async def snmp_query_v2(var_bind, hostname, community="public"):
     snmp_engine = SnmpEngine()
     return nextCmd(
@@ -619,6 +641,7 @@ async def snmp_query_v2(var_bind, hostname, community="public"):
         ObjectType(ObjectIdentity(var_bind)),
     )
 
+
 async def snmp_get_query_v2(var_bind, hostname, community="public"):
     snmp_engine = SnmpEngine()
     return getCmd(
@@ -628,6 +651,7 @@ async def snmp_get_query_v2(var_bind, hostname, community="public"):
         ContextData(),
         ObjectType(ObjectIdentity(var_bind)),
     )
+
 
 async def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
                         priv_protocol=usmAesCfb128Protocol):
@@ -640,11 +664,13 @@ async def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_p
         ObjectType(ObjectIdentity(var_bind)),
     )
 
+
 def scan_up_host_and_append(ip, active_hosts):
     active = is_ip_active(ip=ip, all_active=True)
     if active:
         active_hosts.add(ip)
     return active_hosts
+
 
 def get_snmp_hosts(network):
     cfg = Configuration()
@@ -672,6 +698,7 @@ def get_snmp_hosts(network):
 
     return active_hosts
 
+
 async def getting_stacks_by_host_snmp(active_hosts, community):
     hosts_report = {}
     for host in active_hosts:
@@ -692,9 +719,11 @@ async def getting_stacks_by_host_snmp(active_hosts, community):
             pass
     return json.dumps(hosts_report)
 
+
 """
     Display an error message
 """
+
 
 def request_error(error):
     click.echo(error)
@@ -708,9 +737,11 @@ def request_error(error):
         """
     )
 
+
 """
     Get each container Name and image  
 """
+
 
 def get_container_name_and_images():
     containers_info = {}
@@ -734,9 +765,11 @@ def get_container_name_and_images():
 
     return containers_info
 
+
 """
     Get packages and version result from command line
 """
+
 
 def get_host_packages(command, host_os, file, container):
     if host_os == 'Windows':
@@ -825,9 +858,11 @@ def get_host_packages(command, host_os, file, container):
 
         click.echo(f" + Listing Packages for {container} container in {host_os} successfully !!!\n")
 
+
 """
     Get the host os 
 """
+
 
 def get_host_os():
     if pt.system() == 'Windows':
@@ -848,9 +883,11 @@ def get_host_os():
         if "system" in line.lower():
             return line.split(':')[-1].lower().lstrip()
 
+
 """
     Format the package name and version for usage 
 """
+
 
 def format_pkg_version(command1_output, host_os):
     if "ubuntu" in host_os or "debian" in host_os:
@@ -911,9 +948,11 @@ def format_pkg_version(command1_output, host_os):
 
     return tab
 
+
 """
     Collect package name and version from command line
 """
+
 
 def network_host_audit(file):
     host_os = get_host_os()
@@ -986,9 +1025,11 @@ def network_host_audit(file):
             if container != last_container:
                 file.write(",")
 
+
 """
     Format properly the content of the reported file to json syntax
 """
+
 
 def format_json_report(client_id, client_secret, file):
     file_content = ""
@@ -1012,13 +1053,13 @@ def format_json_report(client_id, client_secret, file):
         if response.status_code != 200:
             click.echo("\nExecution error️")
             click.echo("Message: ", response.json()["detail"])
-        
 
         with open(file, "w+") as file_in_write_mode:
             file_in_write_mode.write("")
     except requests.exceptions.RequestException as e:
         print(f"error on request {e}")
         request_error(error=e)
+
 
 def read_config(config_file: str = None):
     if not config_file:
@@ -1037,6 +1078,7 @@ def read_config(config_file: str = None):
         print(f"Cannot read config file {file_name}. This is error {e}")
         return None
 
+
 def update_config_with_nested(config, updated_config):
     if config:
         for key, value in updated_config.items():
@@ -1050,6 +1092,7 @@ def update_config_with_nested(config, updated_config):
                 # Update or add a new key-value pair
                 config[key] = value
 
+
 def update_config(file_name, loaded_config_data, new_config):
     update_config_with_nested(loaded_config_data, new_config)
     try:
@@ -1058,6 +1101,7 @@ def update_config(file_name, loaded_config_data, new_config):
         print(f"Configs successfully written in '{file_name}'.")
     except yaml.YAMLError as e:
         print(f"Cannot write config file. {e}")
+
 
 def run_not_network(client_id, secret_key):
     """
@@ -1075,6 +1119,7 @@ def run_not_network(client_id, secret_key):
 
     file.close()
     format_json_report(client_id, secret_key, "data")
+
 
 def run_network(community, device, client_id, secret_key):
     """
@@ -1241,7 +1286,7 @@ def run():
         else:
             click.echo("\nRUN")
             click.echo("\nAuthentication failed!!")
-            click.echo(f"Detail Body : {response.json()} ")
+            click.echo(f"{response.json()}")
     except requests.exceptions.RequestException as e:
         request_error(error=e)
     try:
@@ -1250,7 +1295,7 @@ def run():
             custom_exit("TOKEN")
     except NoKeyringError as e:
         # use db method
-        with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "watchmanAgent.db") as obj:
+        with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "/" + "watchmanAgent.db") as obj:
             if obj.read_value("token") is None:
                 custom_exit("Authentication failed!!")
     """
