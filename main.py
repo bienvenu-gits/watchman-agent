@@ -1061,7 +1061,7 @@ def format_json_report(client_id, client_secret, file):
         request_error(error=e)
 
 
-def export_data_to_csv(file):
+def export_data_to_csv(file, export_path):
     file_content = ""
     with open(file, "r+") as file_in_read_mode:
         file_content = file_in_read_mode.read()
@@ -1073,7 +1073,7 @@ def export_data_to_csv(file):
     first_key = next(iter(data))
 
     # CSV file name
-    csv_file = f"first_key.csv"
+    csv_file = f"{export_path}{first_key}.csv"
 
     # Open CSV file for writing
     with open(csv_file, 'w', newline='') as csvfile:
@@ -1130,7 +1130,7 @@ def update_config(file_name, loaded_config_data, new_config):
         print(f"Cannot write config file. {e}")
 
 
-def run_not_network(client_id, secret_key, export):
+def run_not_network(client_id, secret_key, export, export_path):
     """
         By cmd execution
     """
@@ -1146,12 +1146,12 @@ def run_not_network(client_id, secret_key, export):
 
     file.close()
     if export == True:
-        export_data_to_csv("data")
+        export_data_to_csv("data", export_path)
         return 
     format_json_report(client_id, secret_key, "data")
 
 
-def run_network(community, device, client_id, secret_key, export):
+def run_network(community, device, client_id, secret_key, export, export_path):
     """
         By snmp mibs 
     """
@@ -1169,7 +1169,7 @@ def run_network(community, device, client_id, secret_key, export):
         file.close()
         
         if export == True:
-            export_data_to_csv("data")
+            export_data_to_csv("data", export_path)
             return 
         
         format_json_report(client_id, secret_key, "data")
@@ -1191,6 +1191,8 @@ def configure():
               help="Runtime mode for agent execution [network/agent]. Default: agent", required=False)
 @click.option("-x", "--export", type=str, default='No',
               help="This config is for exporting data on CSV or not. Default: No", required=False)
+@click.option("-xp", "--export_path", type=str, default='',
+              help="This config is for define folder for save file exported. Default: No", required=False)
 @click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
 def configure_connect(mode, export, client_id, client_secret):
@@ -1209,6 +1211,9 @@ def configure_connect(mode, export, client_id, client_secret):
 
     if export:
         config.set_value(section, 'export', value=export)
+
+    if export_path:
+        config.set_value(section, 'export_path', value=export_path)
 
     if client_secret:
         config.set_value(section, 'secret_key', value=client_secret)
@@ -1303,6 +1308,7 @@ def run():
 
     mode = config.get_value('runtime', 'mode', default='network')
     export = config.get_value('runtime', 'export', default='No')
+    export_path = config.get_value('runtime', 'export_path', default='')
     client_id = config.get_value('runtime', 'client_id')
     secret_key = config.get_value('runtime', 'secret_key')
     if None in [mode, client_id, secret_key]:
@@ -1347,9 +1353,9 @@ def run():
         Getting stacks from the target 
     """
     if mode == 'agent':
-        run_not_network(client_id=client_id, secret_key=secret_key, export=export)
+        run_not_network(client_id=client_id, secret_key=secret_key, export=export, export_path=export_path)
     else:
-        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key, export=export)
+        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key, export=export, export_path=export_path)
 
 
 if __name__ == "__main__":
