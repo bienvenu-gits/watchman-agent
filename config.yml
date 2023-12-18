@@ -18,8 +18,9 @@ network:
 runtime:
   # mode: network
   mode: agent
-  export: Yes
+  export: True
   export_path: '/Users/elaunick/Projects/GITS/Watchmanagent/watchman_agent/'
+  export_type: 'json'
   client_id: g6wW5YVrD6J3IwvY6DB4jEyq7iGQkVHJhwyDYHc0
   secret_key: VGwDqOAT6CgtoPQL1WUCcsyBZiMHbXEHaXGQS1EQbyzOnbWTanTC6QVNrM4m
 schedule:

@@ -1,0 +1,251 @@
+{
+  "Elauriches-MBP": {
+    "os": "macOS",
+    "packages": [
+      {
+        "name": "CLTools_SDK_macOS13",
+        "version": "15.1.0.0.1.1700200546"
+      },
+      {
+        "name": "CLTools_SDK_macOS12",
+        "version": "14.3.1.0.1.1683849156"
+      },
+      {
+        "name": "CLTools_Executables",
+        "version": "15.1.0.0.1.1700200546"
+      },
+      {
+        "name": "data-template",
+        "version": "14.2"
+      },
+      {
+        "name": "1700A21",
+        "version": "1.0.0.0.1.1692854651"
+      },
+      {
+        "name": "CLTools_SDK_macOS14",
+        "version": "15.1.0.0.1.1700200546"
+      },
+      {
+        "name": "1650A12",
+        "version": "1.0.0.0.1.1677725077"
+      },
+      {
+        "name": "16U4273",
+        "version": "114.1.1696598266"
+      },
+      {
+        "name": "16U4270",
+        "version": "112.1.1695311945"
+      },
+      {
+        "name": "16U4211",
+        "version": "1.93.1.1657754914"
+      },
+      {
+        "name": "16U4274",
+        "version": "118.1.1697824984"
+      },
+      {
+        "name": "MobileDevice",
+        "version": "4.0.0.0.1.1692854651"
+      },
+      {
+        "name": "16U4269",
+        "version": "2172.1.1695307506"
+      },
+      {
+        "name": "16U4271",
+        "version": "2173.1.1696522818"
+      },
+      {
+        "name": "16U4279",
+        "version": "120.1.1701468217"
+      },
+      {
+        "name": "RosettaUpdateAuto",
+        "version": "1.0.0.0.1.1701776189"
+      },
+      {
+        "name": "16U4275",
+        "version": "2174.1.1697825898"
+      },
+      {
+        "name": "16U4276",
+        "version": "2175.1.1698946208"
+      },
+      {
+        "name": "16U4277",
+        "version": "2176.1.1701362417"
+      },
+      {
+        "name": "1700A21",
+        "version": "1.0.0.0.1.1692854651"
+      },
+      {
+        "name": "MobileDeviceDevelopment",
+        "version": "16.4.0.9000000001.1667398374"
+      },
+      {
+        "name": "CLTools_SwiftBackDeploy",
+        "version": "15.1.0.0.1.1700200546"
+      },
+      {
+        "name": "CLTools_macOS_SDK",
+        "version": "15.1.0.0.1.1700200546"
+      },
+      {
+        "name": "XcodeSystemResources",
+        "version": "15.1.0.0.1.1700200546"
+      },
+      {
+        "name": "cliq",
+        "version": "1.7.0"
+      },
+      {
+        "name": "slackmacgap",
+        "version": "4.35.131"
+      },
+      {
+        "name": "theunarchiver",
+        "version": "4.3.6"
+      },
+      {
+        "name": "Pages13",
+        "version": "13.2.1.1694639406"
+      },
+      {
+        "name": "volume",
+        "version": "16.52.21080801"
+      },
+      {
+        "name": "virtualbox",
+        "version": "7.0.11"
+      },
+      {
+        "name": "virtualboxcli",
+        "version": "7.0.11"
+      },
+      {
+        "name": "app",
+        "version": "16.80.23121017"
+      },
+      {
+        "name": "Brave",
+        "version": "0"
+      },
+      {
+        "name": "vagrant",
+        "version": "2.3.7"
+      },
+      {
+        "name": "AIVApp",
+        "version": "10.11.0"
+      },
+      {
+        "name": "app",
+        "version": "16.80.23121017"
+      },
+      {
+        "name": "OneDrive",
+        "version": "23.71.402"
+      },
+      {
+        "name": "Frameworks",
+        "version": "0"
+      },
+      {
+        "name": "POS",
+        "version": "1.0"
+      },
+      {
+        "name": "desktop",
+        "version": "2023.10.1"
+      },
+      {
+        "name": "WhatsApp",
+        "version": "23.24.80"
+      },
+      {
+        "name": "teams",
+        "version": "1.00.634263"
+      },
+      {
+        "name": "Keynote13",
+        "version": "13.2.1.1694639406"
+      },
+      {
+        "name": "app",
+        "version": "16.80.23121017"
+      },
+      {
+        "name": "app",
+        "version": "16.80.23121017"
+      },
+      {
+        "name": "WhatsApp",
+        "version": "2.2349.52"
+      },
+      {
+        "name": "Memory-Diag",
+        "version": "2.4.8"
+      },
+      {
+        "name": "Proofing_Tools",
+        "version": "0"
+      },
+      {
+        "name": "helper",
+        "version": "0"
+      },
+      {
+        "name": "DFonts",
+        "version": "0"
+      },
+      {
+        "name": "Xcode",
+        "version": "15.1.0.0.1.1700200546"
+      },
+      {
+        "name": "app",
+        "version": "4.66.23121017"
+      },
+      {
+        "name": "videomeeting",
+        "version": "5.16.2.23409"
+      },
+      {
+        "name": "MSTeamsAudioDevice",
+        "version": "2023.31.1"
+      },
+      {
+        "name": "licensing",
+        "version": "16.52.21080801"
+      },
+      {
+        "name": "Telegram",
+        "version": "10.3.0"
+      },
+      {
+        "name": "Numbers13",
+        "version": "13.2.1.1694639406"
+      },
+      {
+        "name": "Desktop",
+        "version": "5.5.1"
+      },
+      {
+        "name": "WWDC_Catalyst",
+        "version": "8.2.0.0.1.1685221597"
+      },
+      {
+        "name": "app",
+        "version": "16.80.23121017"
+      }
+    ],
+    "mac": "c8:89:f3:b6:a9:ae",
+    "architecture": "64bit",
+    "ip": "192.168.50.107",
+    "containers": []
+  }
+}

@@ -31,6 +31,7 @@ setup(
         'pysnmplib',
         'semver',
         'packaging',
+        'openpyxl',
     ],
 
     # entry_points={  # Optional

@@ -13,6 +13,9 @@ import time
 import socket
 import subprocess
 import yaml
+import getmac
+import platform
+import socket
 from pathlib import Path
 
 import click
@@ -24,6 +27,8 @@ from pysnmp.hlapi import *
 from sqlitedict import SqliteDict
 from semver.version import Version as sem_version
 from packaging import version as pkg_version
+import pandas as pd
+import re
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -428,6 +433,31 @@ def reformatting_version(version):
 def coroutine_wrapper(coroutine):
     asyncio.run(coroutine)
 
+def get_mac_address(interface="en0"):
+    try:
+        mac_address = getmac.get_mac_address(interface=interface)
+        return mac_address
+    except Exception as e:
+        return f"Error: {e}"
+    
+def get_os_architecture():
+    try:
+        architecture, _ = platform.architecture()
+        return architecture
+    except Exception as e:
+        return f"Error: {e}"
+
+def get_ip_address():
+    try:
+        # Create a socket object to get the local machine's IP address
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))  # Connect to Google's public DNS server
+        ip_address = s.getsockname()[0]  # Get the local IP address
+        s.close()
+        print(f"-------------- {ip_address}")
+        return ip_address
+    except Exception as e:
+        return f"Error: {e}"
 
 def extract_info_linux(package_string):
     # Utilisation d'une expression régulière pour extraire le nom, la version et l'architecture sous Linux
@@ -769,9 +799,11 @@ def get_container_name_and_images():
 """
     Get packages and version result from command line
 """
-
-
+    
 def get_host_packages(command, host_os, file, container):
+    mac = get_mac_address()
+    architecture = get_os_architecture()
+    ip = get_ip_address()
     if host_os == 'Windows':
 
         command_output = subprocess.check_output(command, text=True)
@@ -806,7 +838,6 @@ def get_host_packages(command, host_os, file, container):
         if status == 0:
             # The command ran successfully, split the output into a list of package names
             installed_packages = output.splitlines()
-
             # Print package names and their versions
             for package in installed_packages:
                 # Run 'pkgutil --pkg-info' to get package version
@@ -827,7 +858,7 @@ def get_host_packages(command, host_os, file, container):
                         packages_versions.append(
                             {
                                 "name": package,
-                                "version": None
+                                "version": None,
                             }
                         )
                 else:
@@ -842,6 +873,9 @@ def get_host_packages(command, host_os, file, container):
         file.writelines([
             "\"os\" : \"%s\" , " % host_os,
             "\"packages\" : %s ," % packages_versions,
+            "\"mac\" : \"%s\" , " %mac,
+            "\"architecture\": \"%s\"," %architecture,
+            "\"ip\": \"%s\"," %ip,
             "\"containers\" : [ "
         ])
         click.echo("\n\n + Listing Packages for %s successfully !!!\n" % host_os)
@@ -1067,9 +1101,9 @@ def export_data_to_csv(file, export_path):
         file_content = file_in_read_mode.read()
     file_content = re.sub('\'', '"', file_content)
     data = file_content
+
     # Parse JSON
     data = json.loads(data)
-    
     first_key = next(iter(data))
 
     # CSV file name
@@ -1081,12 +1115,74 @@ def export_data_to_csv(file, export_path):
         csv_writer = csv.writer(csvfile)
 
         # Write header
-        csv_writer.writerow(["Device", "OS", "Package Name", "Package Version"])
+        csv_writer.writerow(["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version", "stack_type", "host_machine", "host_machine_architecture", "host_machine_os", "host_machine_hostname", "host_machine_mac"])
 
         # Write data
         for package in data[first_key]["packages"]:
-            csv_writer.writerow([first_key, data[first_key]["os"], package["name"], package["version"]])
+            csv_writer.writerow([data[first_key]["ip"], data[first_key]["mac"], data[first_key]["architecture"], first_key, data[first_key]["os"], package["name"], package["version"]])
     return csv_file
+
+def export_data_to_xlsx(file, export_path):
+    file_content = ""
+    
+    # Read the file content
+    with open(file, "r+") as file_in_read_mode:
+        file_content = file_in_read_mode.read()
+
+    # Replace single quotes with double quotes
+    file_content = re.sub('\'', '"', file_content)
+    
+    # Parse JSON
+    data = json.loads(file_content)
+    first_key = next(iter(data))
+
+    # Create a list of dictionaries for the data
+    rows = []
+    for package in data[first_key]["packages"]:
+        row_data = {
+            "ip": data[first_key]["ip"],
+            "mac": data[first_key]["mac"],
+            "architecture": data[first_key]["architecture"],
+            "hostname": first_key,
+            "os": data[first_key]["os"],
+            "stack_name": package["name"],
+            "stack_version": package["version"]
+        }
+        rows.append(row_data)
+
+    # Create DataFrame from the list of dictionaries
+    df = pd.DataFrame(rows, columns=["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version"])
+
+    # Excel file name
+    xlsx_file = f"{export_path}{first_key}.xlsx"
+
+    # Write the DataFrame to an Excel file
+    df.to_excel(xlsx_file, index=False)
+
+    return xlsx_file
+
+def export_data_to_json(file, export_path):
+    file_content = ""
+
+    # Read the file content
+    with open(file, "r+") as file_in_read_mode:
+        file_content = file_in_read_mode.read()
+
+    # Replace single quotes with double quotes
+    file_content = re.sub('\'', '"', file_content)
+
+    # Parse JSON
+    data = json.loads(file_content)
+    first_key = next(iter(data))
+
+    # JSON file name
+    json_file = f"{export_path}{first_key}.json"
+
+    # Write data to JSON file
+    with open(json_file, 'w') as jsonfile:
+        json.dump(data, jsonfile, indent=2)
+
+    return json_file
 
 def read_config(config_file: str = None):
     if not config_file:
@@ -1130,7 +1226,7 @@ def update_config(file_name, loaded_config_data, new_config):
         print(f"Cannot write config file. {e}")
 
 
-def run_not_network(client_id, secret_key, export, export_path):
+def run_not_network(client_id, secret_key, export, export_path, export_type):
     """
         By cmd execution
     """
@@ -1146,7 +1242,12 @@ def run_not_network(client_id, secret_key, export, export_path):
 
     file.close()
     if export == True:
-        export_data_to_csv("data", export_path)
+        if export_type == 'csv':
+            export_data_to_csv("data", export_path)
+        elif export_type == 'xlsx':
+            export_data_to_xlsx("data", export_path)
+        elif export_type == 'json':
+            export_data_to_json("data", export_path)
         return 
     format_json_report(client_id, secret_key, "data")
 
@@ -1189,13 +1290,15 @@ def configure():
 @configure.command(name="connect", help='Save connect configuration variables')
 @click.option("-m", "--mode", type=str, default='network',
               help="Runtime mode for agent execution [network/agent]. Default: agent", required=False)
-@click.option("-x", "--export", type=str, default='No',
-              help="This config is for exporting data on CSV or not. Default: No", required=False)
+@click.option("-x", "--export", type=str, default=True,
+              help="This config is for exporting or not. Default: No", required=False)
+@click.option("-xt", "--export_type", type=str, default=True,
+              help="This config is for define type of export file. Default: No", required=False)
 @click.option("-xp", "--export_path", type=str, default='',
               help="This config is for define folder for save file exported. Default: No", required=False)
 @click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
-def configure_connect(mode, export, client_id, client_secret):
+def configure_connect(mode, export, export_type, export_path, client_id, client_secret):
     cfg = Configuration()
     config = cfg.create(config_file_path=configFile)
     section = 'runtime'
@@ -1214,6 +1317,9 @@ def configure_connect(mode, export, client_id, client_secret):
 
     if export_path:
         config.set_value(section, 'export_path', value=export_path)
+
+    if export_type:
+        config.set_value(section, 'export_type', value=export_type)
 
     if client_secret:
         config.set_value(section, 'secret_key', value=client_secret)
@@ -1309,6 +1415,7 @@ def run():
     mode = config.get_value('runtime', 'mode', default='network')
     export = config.get_value('runtime', 'export', default='No')
     export_path = config.get_value('runtime', 'export_path', default='')
+    export_type = config.get_value('runtime', 'export_type', default='csv')
     client_id = config.get_value('runtime', 'client_id')
     secret_key = config.get_value('runtime', 'secret_key')
     if None in [mode, client_id, secret_key]:
@@ -1353,9 +1460,9 @@ def run():
         Getting stacks from the target 
     """
     if mode == 'agent':
-        run_not_network(client_id=client_id, secret_key=secret_key, export=export, export_path=export_path)
+        run_not_network(client_id=client_id, secret_key=secret_key, export=export, export_path=export_path, export_type=export_type)
     else:
-        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key, export=export, export_path=export_path)
+        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key, export=export, export_path=export_path, export_type=export_type)
 
 
 if __name__ == "__main__":
