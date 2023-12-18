@@ -16,19 +16,20 @@ configYml = "config.yml"
 
 
 def run_cli_command(command):
+    def process_command(path):
+        c = [path]
+        c.extend(command.split())
+        print(c)
+        subprocess.run(c, shell=False)
+
     os = platform.system().lower()
+
     if os in ['linux', 'darwin']:
         path = "" + str(Path(__file__).resolve().parent) + f"/commands/dist/main_{os}"
-        c = [path]
-        c.extend(command.split())
-        print(c)
-        subprocess.run(c, shell=False)
+        process_command(path)
     else:
         path = str(Path(__file__).resolve().parent) + "/commands/dist/main.exe"
-        c = [path]
-        c.extend(command.split())
-        print(c)
-        subprocess.run(c, shell=False)
+        process_command(path)
 
 
 class WatchmanCLI(click.Group):

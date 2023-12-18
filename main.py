@@ -5,6 +5,7 @@ import ipaddress
 import json
 import logging
 import os
+import sys
 import threading
 
 import platform as pt
@@ -726,7 +727,7 @@ async def getting_stacks_by_host_snmp(active_hosts, community):
 
 
 def request_error(error):
-    click.echo(error)
+    click.echo(click.style(error, fg='red'))
     custom_exit(
         """
             Unable to join the server !
@@ -1260,18 +1261,34 @@ def run():
     mode = config.get_value('runtime', 'mode', default='network')
     client_id = config.get_value('runtime', 'client_id')
     secret_key = config.get_value('runtime', 'secret_key')
-    if None in [mode, client_id, secret_key]:
-        click.echo("\nPlease configure agent! Check help to see how to configure.")
-
     community = config.get_value('network', 'snmp', 'v2', 'community', default='public')
     network = config.get_value('network', 'ip')
+
+    if not mode:
+        click.echo(click.style("Please config the connect mode before continue.", fg='orange'))
+        sys.exit(1)  # Exit with a non-zero status code
+
+    if not client_id:
+        click.echo(click.style("Please config the agent Client ID before continue.", fg='orange'))
+        sys.exit(1)  # Exit with a non-zero status code
+
+    if not secret_key:
+        click.echo(click.style("Please config the agent Client Secret Key before continue.", fg='orange'))
+        sys.exit(1)  # Exit with a non-zero status code
+
+    if mode == "network" and not network:
+        click.echo(click.style("Please add the network configurations before continue.", fg='orange'))
+        sys.exit(1)  # Exit with a non-zero status code
+
+    if mode == "network" and not network:
+        click.echo(click.style("Please add the network configurations before continue.", fg='orange'))
+        sys.exit(1)  # Exit with a non-zero status code
+
     try:
         response = requests.get(CONNECT_URL, headers={
             "AGENT-ID": client_id,
             "AGENT-SECRET": secret_key
         })
-
-        click.echo(f"Detail : {response} ")
         if response.status_code == 200:
             token = response.json()["token"]
             if token:
@@ -1284,8 +1301,7 @@ def run():
                                mode="write") as obj:
                         obj.insert_value("token", token)
         else:
-            click.echo("\nRUN")
-            click.echo("\nAuthentication failed!!")
+            click.echo("[runtime error] - Something went wrong!!\n")
             click.echo(f"{response.json()}")
     except requests.exceptions.RequestException as e:
         request_error(error=e)

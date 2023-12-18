@@ -12,9 +12,11 @@ setup(
     ),
     python_requires='>=3.8',
     include_package_data=True,
-    # py_modules=[''],
     package_data={
-        "watchman_agent": ["commands/*"]
+        "watchman_agent": [
+            "commands/*",  # Inclut tous les fichiers du sous-répertoire 'commands'
+            "commands.dist/*",  # Inclut tous les fichiers du sous-répertoire 'commands.dist'
+        ],
     },
     install_requires=[
         'requests',
