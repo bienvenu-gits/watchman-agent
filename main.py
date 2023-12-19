@@ -953,6 +953,13 @@ def get_host_os():
         else:
             print("ProductName not found in the input data.")
 
+    command_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
+    command_output_lines = command_output.stdout.decode("utf-8").split('\n')
+
+    for line in command_output_lines:
+        if "system" in line.lower():
+            return line.split(':')[-1].lower().lstrip()
+
 
 def get_os_hostname(ip_address):
     try:
