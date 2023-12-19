@@ -1,11 +1,11 @@
 network:
   cidr: 24
   exempt:
-  - 192.168.8.24
   - 192.168.1.12
   - 192.168.6.10
   - 192.168.8.16
-  ip: 209.97.189.19
+  - 192.168.8.24
+  ip: 192.168.100.0
   snmp:
     port: 161
     v2:
@@ -19,7 +19,7 @@ runtime:
   export: false
   export_file: watchman_export_assets.csv
   export_path: /home/near
-  mode: agent
+  mode: network
   secret_key: VGwDqOAT6CgtoPQL1WUCcsyBZiMHbXEHaXGQS1EQbyzOnbWTanTC6QVNrM4m
 schedule:
   day: '*'

@@ -150,6 +150,22 @@ def configure():
     pass
 
 
+@configure.command(name="export", help='Save exportation configuration variables')
+@click.option("-a", "--activate", type=click.BOOL, default=False,
+              help="Activate exportation run mode. Default: False if option not set", required=False)
+@click.option('-p', '--path', type=click.Path(), default=os.path.expanduser('~'),
+              help="The path to the export directory. Default: Current user home directory", required=False)
+@click.option('-f', '--file-name', type=str, default='watchman_export_assets.csv',
+              help="The exportation file name. Default: watchman_export_assets.csv", required=False)
+def configure_exportation(activate, path, file_name):
+    if activate is not None:
+        run_cli_command(f'configure export --activate {activate}')
+    if path:
+        run_cli_command(f'configure export --path {path}')
+    if file_name:
+        run_cli_command(f'configure export --file-name {file_name}')
+
+
 @configure.command(name="connect", help='Save connect configuration variables')
 @click.option("-m", "--mode", type=str, default='network',
               help="Runtime mode for agent execution [network/agent]. Default: agent", required=False)
