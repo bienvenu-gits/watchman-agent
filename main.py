@@ -1069,7 +1069,7 @@ def export_data_to_csv(file, export_path):
     data = file_content
     # Parse JSON
     data = json.loads(data)
-    
+
     first_key = next(iter(data))
 
     # CSV file name
@@ -1087,6 +1087,7 @@ def export_data_to_csv(file, export_path):
         for package in data[first_key]["packages"]:
             csv_writer.writerow([first_key, data[first_key]["os"], package["name"], package["version"]])
     return csv_file
+
 
 def read_config(config_file: str = None):
     if not config_file:
@@ -1147,11 +1148,11 @@ def run_not_network(client_id, secret_key, export, export_path):
     file.close()
     if export == True:
         export_data_to_csv("data", export_path)
-        return 
+        return
     format_json_report(client_id, secret_key, "data")
 
 
-def run_network(community, device, client_id, secret_key, export, export_path):
+def run_network(community, device, client_id, secret_key, export, export_path, export_file):
     """
         By snmp mibs 
     """
@@ -1167,13 +1168,13 @@ def run_network(community, device, client_id, secret_key, export, export_path):
         with open("data", "w+") as file:
             file.write("%s" % report)
         file.close()
-        
-        if export == True:
-            export_data_to_csv("data", export_path)
-            return 
-        
+
+        if export is True:
+            full_path = export_path + "/" + export_file
+            export_data_to_csv("data", full_path)
+            return
+
         format_json_report(client_id, secret_key, "data")
-            
 
 
 @click.command(cls=WatchmanCLI)
@@ -1186,13 +1187,27 @@ def configure():
     pass
 
 
+@configure.command(name="export", help='Save exportation configuration variables')
+@click.option("-a", "--activate", type=click.BOOL, default=False,
+              help="Activate exportation run mode. Default: False if option not set", required=False)
+@click.option('-p', '--path', type=click.Path(), default=os.path.expanduser('~'), help="The path to the export directory. Default: Current user home directory", required=False)
+@click.option('-f', '--file-name', type=str, default='watchman_export_assets.csv', help="The exportation file name. Default: watchman_export_assets.csv", required=False)
+def configure_exportation(activate, path, file_name):
+    cfg = Configuration()
+    config = cfg.create(config_file_path=configFile)
+    section = 'runtime'
+
+    if activate is not None:
+        config.set_value(section, 'export', value=activate)
+    if path:
+        config.set_value(section, 'export_path', value=path)
+    if file_name:
+        config.set_value(section, 'export_file', value=file_name)
+
+
 @configure.command(name="connect", help='Save connect configuration variables')
 @click.option("-m", "--mode", type=str, default='network',
               help="Runtime mode for agent execution [network/agent]. Default: agent", required=False)
-@click.option("-x", "--export", type=str, default='No',
-              help="This config is for exporting data on CSV or not. Default: No", required=False)
-@click.option("-xp", "--export_path", type=str, default='',
-              help="This config is for define folder for save file exported. Default: No", required=False)
 @click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
 def configure_connect(mode, export, client_id, client_secret):
@@ -1208,12 +1223,6 @@ def configure_connect(mode, export, client_id, client_secret):
 
     if client_secret:
         config.set_value(section, 'secret_key', value=client_secret)
-
-    if export:
-        config.set_value(section, 'export', value=export)
-
-    if export_path:
-        config.set_value(section, 'export_path', value=export_path)
 
     if client_secret:
         config.set_value(section, 'secret_key', value=client_secret)
@@ -1307,8 +1316,9 @@ def run():
     config = cfg.create(config_file_path=configFile)
 
     mode = config.get_value('runtime', 'mode', default='network')
-    export = config.get_value('runtime', 'export', default='No')
-    export_path = config.get_value('runtime', 'export_path', default='')
+    export = config.get_value('runtime', 'export', default=False)
+    export_path = config.get_value('runtime', 'export_path', default=os.path.expanduser('~'))
+    export_file = config.get_value('runtime', 'export_file', default='watchman_export_assets.csv')
     client_id = config.get_value('runtime', 'client_id')
     secret_key = config.get_value('runtime', 'secret_key')
     if None in [mode, client_id, secret_key]:
@@ -1346,16 +1356,18 @@ def run():
             custom_exit("TOKEN")
     except NoKeyringError as e:
         # use db method
-        with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "/" + "watchmanAgent.db") as obj:
+        with KeyDB(table_name="watchmanAgent",
+                   db=str(Path(__file__).resolve().parent) + "/" + "watchmanAgent.db") as obj:
             if obj.read_value("token") is None:
                 custom_exit("Authentication failed!!")
     """
         Getting stacks from the target 
     """
     if mode == 'agent':
-        run_not_network(client_id=client_id, secret_key=secret_key, export=export, export_path=export_path)
+        run_not_network(client_id=client_id, secret_key=secret_key, export=export, export_path=export_path, export_file=export_file)
     else:
-        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key, export=export, export_path=export_path)
+        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key, export=export,
+                    export_path=export_path, export_file=export_file)
 
 
 if __name__ == "__main__":
