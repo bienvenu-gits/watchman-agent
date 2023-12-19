@@ -32,7 +32,7 @@ setup(
         'semver',
         'packaging',
         'openpyxl',
-        'pandas',
+        # 'pandas',
         'getmac',
     ],
 
