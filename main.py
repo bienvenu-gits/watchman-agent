@@ -798,15 +798,12 @@ def request_error(error):
 
 def get_container_name_and_images():
     containers_info = {}
-
     try:
         command_output = subprocess.run(
             ["docker", "ps"], stdout=subprocess.PIPE, capture_output=True, text=True)
         command_output = command_output.stdout
-
         containers_general_data = command_output.split('\n')
         containers_general_data.pop(0)
-
         for el in containers_general_data:
             if el != '':
                 tab = el.split(' ')
@@ -815,7 +812,6 @@ def get_container_name_and_images():
                     containers_info[tab[-1]] = tab[3]
     except:
         pass
-
     return containers_info
 
 
