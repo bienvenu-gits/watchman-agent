@@ -31,6 +31,9 @@ setup(
         'pysnmplib',
         'semver',
         'packaging',
+        'openpyxl',
+        'pandas',
+        'getmac',
     ],
 
     # entry_points={  # Optional
