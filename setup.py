@@ -14,7 +14,7 @@ setup(
     include_package_data=True,
     # py_modules=[''],
     package_data={
-        "watchman_agent": ["commands/*"]
+        "watchman_agent": ["commands/**/*"]
     },
     install_requires=[
         'requests',
