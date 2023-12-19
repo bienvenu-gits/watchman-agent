@@ -5,7 +5,7 @@ network:
   - 192.168.6.10
   - 192.168.8.16
   - 192.168.8.24
-  ip: 192.168.100.0
+  ip: 192.168.102.107
   snmp:
     port: 161
     v2:
@@ -18,8 +18,8 @@ runtime:
   client_id: g6wW5YVrD6J3IwvY6DB4jEyq7iGQkVHJhwyDYHc0
   export: false
   export_file: watchman_export_assets.csv
-  export_path: /home/near
-  mode: network
+  export_path: /Users/elaunick/Projects/GITS/Watchmanagent/watchman_agent/
+  mode: agent
   secret_key: VGwDqOAT6CgtoPQL1WUCcsyBZiMHbXEHaXGQS1EQbyzOnbWTanTC6QVNrM4m
 schedule:
   day: '*'

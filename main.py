@@ -845,6 +845,7 @@ def get_host_packages(command, host_os, file, container):
     mac = get_mac_address()
     ip = get_ip_address()
     architecture = get_os_architecture()
+    hostname=get_os_hostname(ip)
     if host_os == 'Windows':
         command_output = subprocess.check_output(command, text=True)
         output_list = command_output.split('\n')
@@ -903,14 +904,21 @@ def get_host_packages(command, host_os, file, container):
     else:
         command_output = subprocess.Popen(command, stdout=subprocess.PIPE)
         packages_versions = format_pkg_version(command_output, host_os)
+    os_info = {
+        "os_name": host_os,
+        "mac": mac,
+        "arch": architecture,
+        "host_name":hostname,
+        "kernel_version": platform.release()
+    }
 
     if container is None:
         file.writelines([
-            "\"os\" : \"%s\" , " % host_os,
+            "\"os\" : %s , " % os_info,
             "\"packages\" : %s ," % packages_versions,
             "\"mac\" : \"%s\" , " % mac,
             "\"architecture\": \"%s\"," % architecture,
-            "\"ip\": \"%s\"," % ip,
+            "\"ipv4\": \"%s\"," % ip,
             "\"containers\" : [ "
         ])
         click.echo("\n + Listing Packages for %s successfully !!!\n" % host_os)
@@ -945,12 +953,13 @@ def get_host_os():
         else:
             print("ProductName not found in the input data.")
 
-    command_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
-    command_output_lines = command_output.stdout.decode("utf-8").split('\n')
 
-    for line in command_output_lines:
-        if "system" in line.lower():
-            return line.split(':')[-1].lower().lstrip()
+def get_os_hostname(ip_address):
+    try:
+        hostname = socket.gethostbyaddr(ip_address)[0]
+        return hostname
+    except socket.herror:
+        return "No domain name found"
 
 
 """
@@ -1103,7 +1112,6 @@ def format_json_report(client_id, client_secret, file):
         file_content = file_in_read_mode.read()
 
     file_content = re.sub('\'', '"', file_content)
-
     try:
         response = requests.post(
             url=WEBHOOK_URL,
