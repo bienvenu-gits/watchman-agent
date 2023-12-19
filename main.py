@@ -850,7 +850,6 @@ def get_host_packages(command, host_os, file, container):
     ip = get_ip_address()
     architecture = get_os_architecture()
     hostname=get_os_hostname(ip)
-    print(hostname)
     if host_os == 'Windows':
         command_output = subprocess.check_output(command, text=True)
         output_list = command_output.split('\n')
@@ -913,7 +912,6 @@ def get_host_packages(command, host_os, file, container):
         "os_name": host_os,
         "mac": mac,
         "arch": architecture,
-        "ip": ip,
         "host_name":hostname,
         "kernel_version": platform.release()
     }
@@ -924,7 +922,7 @@ def get_host_packages(command, host_os, file, container):
             "\"packages\" : %s ," % packages_versions,
             "\"mac\" : \"%s\" , " % mac,
             "\"architecture\": \"%s\"," % architecture,
-            "\"ip\": \"%s\"," % ip,
+            "\"ipv4\": \"%s\"," % ip,
             "\"containers\" : [ "
         ])
         click.echo("\n + Listing Packages for %s successfully !!!\n" % host_os)
@@ -1118,7 +1116,6 @@ def format_json_report(client_id, client_secret, file):
         file_content = file_in_read_mode.read()
 
     file_content = re.sub('\'', '"', file_content)
-    print(file_content)
     try:
         response = requests.post(
             url=WEBHOOK_URL,
