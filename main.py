@@ -8,16 +8,13 @@ import os
 import threading
 import csv
 import platform as pt
-import re
 import time
-import socket
 import subprocess
 import yaml
 import getmac
 import platform
 import socket
 from pathlib import Path
-
 import click
 import keyring
 import requests
@@ -433,19 +430,22 @@ def reformatting_version(version):
 def coroutine_wrapper(coroutine):
     asyncio.run(coroutine)
 
-def get_mac_address(interface="en0"):
+
+def get_mac_address():
     try:
-        mac_address = getmac.get_mac_address(interface=interface)
+        mac_address = getmac.get_mac_address()
         return mac_address
     except Exception as e:
         return f"Error: {e}"
-    
+
+
 def get_os_architecture():
     try:
         architecture, _ = platform.architecture()
         return architecture
     except Exception as e:
         return f"Error: {e}"
+
 
 def get_ip_address():
     try:
@@ -454,10 +454,10 @@ def get_ip_address():
         s.connect(("8.8.8.8", 80))  # Connect to Google's public DNS server
         ip_address = s.getsockname()[0]  # Get the local IP address
         s.close()
-        print(f"-------------- {ip_address}")
         return ip_address
     except Exception as e:
         return f"Error: {e}"
+
 
 def extract_info_linux(package_string):
     # Utilisation d'une expression régulière pour extraire le nom, la version et l'architecture sous Linux
@@ -585,7 +585,7 @@ async def get_packages_async(hostname, community, os_name):
 async def get_host_info_async(hostname, community):
     var_binds = {
         'sys_hostname_bind': '1.3.6.1.2.1.1.5.0',
-        'sys_descr_bind': '1.3.6.1.2.1.1.1.0'
+        'sys_descr_bind': '1.3.6.1.2.1.1.1.0',
     }
     result = {}
     for var_bind_name, var_bind_value in var_binds.items():
@@ -596,6 +596,7 @@ async def get_host_info_async(hostname, community):
             lower_value = value.lower()
             if var_bind_name == 'sys_hostname_bind':
                 result["host_name"] = value
+                result["mac"] = getmac.get_mac_address(ip=hostname)
             elif var_bind_name == 'sys_descr_bind':
                 if "windows" in lower_value:
                     info = extract_windows_host_info(value)
@@ -630,9 +631,9 @@ async def parse_snmp_response(iterator, var_bind):
 
     def threaded_iterator(indication, status, binds, stop, res, var_b):
         if indication:
-            pass
+            return
         elif status:
-            pass
+            return
         else:
             sub_threads = []
             for bind in binds:
@@ -666,7 +667,7 @@ async def snmp_query_v2(var_bind, hostname, community="public"):
     return nextCmd(
         snmp_engine,
         CommunityData(community),
-        UdpTransportTarget((hostname, 161)),
+        UdpTransportTarget((hostname, 161), timeout=2.0, retries=0),
         ContextData(),
         ObjectType(ObjectIdentity(var_bind)),
     )
@@ -674,25 +675,31 @@ async def snmp_query_v2(var_bind, hostname, community="public"):
 
 async def snmp_get_query_v2(var_bind, hostname, community="public"):
     snmp_engine = SnmpEngine()
-    return getCmd(
-        snmp_engine,
-        CommunityData(community),
-        UdpTransportTarget((hostname, 161)),
-        ContextData(),
-        ObjectType(ObjectIdentity(var_bind)),
-    )
+    try:
+        return getCmd(
+            snmp_engine,
+            CommunityData(community),
+            UdpTransportTarget((hostname, 161), timeout=2.0, retries=0),
+            ContextData(),
+            ObjectType(ObjectIdentity(var_bind)),
+        )
+    except:
+        return None
 
 
 async def snmp_query_v3(var_bind, hostname, username, auth_key, priv_key, auth_protocol=usmHMACSHAAuthProtocol,
                         priv_protocol=usmAesCfb128Protocol):
     snmp_engine = SnmpEngine()
-    return nextCmd(
-        snmp_engine,
-        UsmUserData(username, auth_key, priv_key, auth_protocol, priv_protocol),
-        UdpTransportTarget(hostname),
-        ContextData(),
-        ObjectType(ObjectIdentity(var_bind)),
-    )
+    try:
+        return nextCmd(
+            snmp_engine,
+            UsmUserData(username, auth_key, priv_key, auth_protocol, priv_protocol),
+            UdpTransportTarget(hostname),
+            ContextData(),
+            ObjectType(ObjectIdentity(var_bind)),
+        )
+    except:
+        return None
 
 
 def scan_up_host_and_append(ip, active_hosts):
@@ -729,24 +736,40 @@ def get_snmp_hosts(network):
     return active_hosts
 
 
+async def handle_multi_async_operation(host, community, hosts_report):
+    try:
+        start = time.perf_counter()
+        os_info = await get_host_info_async(host, community)
+        end = time.perf_counter()
+        if os_info:
+            click.echo(f'Getting packages for Host: {host}')
+            start = time.perf_counter()
+            packages = await get_packages_async(host, community, os_name=os_info.get('os_name').lower())
+            end = time.perf_counter()
+            hosts_report[host] = {
+                "os": os_info,
+                "ipv4": host,
+                "packages": packages
+            }
+    except:
+        pass
+
+
 async def getting_stacks_by_host_snmp(active_hosts, community):
     hosts_report = {}
     for host in active_hosts:
         try:
-            start = time.perf_counter()
+            click.echo(f'[+] - Getting assets for Host: {host}')
             os_info = await get_host_info_async(host, community)
-            end = time.perf_counter()
             if os_info:
-                start = time.perf_counter()
                 packages = await get_packages_async(host, community, os_name=os_info.get('os_name').lower())
-                end = time.perf_counter()
                 hosts_report[host] = {
                     "os": os_info,
                     "ipv4": host,
                     "packages": packages
                 }
-        except:
-            pass
+        except Exception as e:
+            click.echo(f'Unexpected error occurred: {e}')
     return json.dumps(hosts_report)
 
 
@@ -796,45 +819,60 @@ def get_container_name_and_images():
     return containers_info
 
 
+def parse_dpkg():
+    output = subprocess.check_output(["dpkg", "-l"]).decode("utf-8")
+    lines = output.strip().split("\n")
+
+    # Skip the first 5 lines which contain the header information
+    data_lines = lines[5:]
+
+    packages = []
+    for line in data_lines:
+        split_line = line.split(None, 3)
+        # Each line has 4 columns: status, name, version, architecture
+        status, name, version, architecture = split_line
+        reformatting_version(version)
+        version = parse_version(version)
+        name = name.split(":")[0]
+        package = {"name": name, "version": version}
+        packages.append(package)
+
+    return packages
+
+
 """
     Get packages and version result from command line
 """
-    
+
+
 def get_host_packages(command, host_os, file, container):
     mac = get_mac_address()
-    architecture = get_os_architecture()
     ip = get_ip_address()
+    architecture = get_os_architecture()
+    hostname=get_os_hostname(ip)
+    print(hostname)
     if host_os == 'Windows':
-
         command_output = subprocess.check_output(command, text=True)
-
         output_list = command_output.split('\n')
-
         packages_versions = []
-
         for el in output_list:
-
             el = el.split()
-
             el = [i for i in el if i != '']  # purge space
-
             try:
-
                 if el[-1][0].isdigit() and el[-1][-1].isdigit():
-                    version = reformatting_version(el[-1])
+                    reformatting_version(el[-1])
+                    version = parse_version(el[-1])
                     p_v = {
                         "name": " ".join(el[:-1]),
                         "version": version
                     }
                     if p_v["name"] != "":
                         packages_versions.append(p_v)
-
             except:
                 pass
     elif host_os == "macOS":
         packages_versions = []
         status, output = subprocess.getstatusoutput(command)
-
         if status == 0:
             # The command ran successfully, split the output into a list of package names
             installed_packages = output.splitlines()
@@ -866,19 +904,30 @@ def get_host_packages(command, host_os, file, container):
         else:
             # An error occurred
             print(f"Error running 'pkgutil --pkgs': {output}")
+    elif 'kali' in host_os:
+        packages_versions = parse_dpkg()
     else:
         command_output = subprocess.Popen(command, stdout=subprocess.PIPE)
         packages_versions = format_pkg_version(command_output, host_os)
+    os_info = {
+        "os_name": host_os,
+        "mac": mac,
+        "arch": architecture,
+        "ip": ip,
+        "host_name":hostname,
+        "kernel_version": platform.release()
+    }
+
     if container is None:
         file.writelines([
-            "\"os\" : \"%s\" , " % host_os,
+            "\"os\" : %s , " % os_info,
             "\"packages\" : %s ," % packages_versions,
-            "\"mac\" : \"%s\" , " %mac,
-            "\"architecture\": \"%s\"," %architecture,
-            "\"ip\": \"%s\"," %ip,
+            "\"mac\" : \"%s\" , " % mac,
+            "\"architecture\": \"%s\"," % architecture,
+            "\"ip\": \"%s\"," % ip,
             "\"containers\" : [ "
         ])
-        click.echo("\n\n + Listing Packages for %s successfully !!!\n" % host_os)
+        click.echo("\n + Listing Packages for %s successfully !!!\n" % host_os)
     else:
 
         file.writelines([
@@ -910,12 +959,13 @@ def get_host_os():
         else:
             print("ProductName not found in the input data.")
 
-    command_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
-    command_output_lines = command_output.stdout.decode("utf-8").split('\n')
 
-    for line in command_output_lines:
-        if "system" in line.lower():
-            return line.split(':')[-1].lower().lstrip()
+def get_os_hostname(ip_address):
+    try:
+        hostname = socket.gethostbyaddr(ip_address)[0]
+        return hostname
+    except socket.herror:
+        return "No domain name found"
 
 
 """
@@ -938,7 +988,6 @@ def format_pkg_version(command1_output, host_os):
             ["cut", "-d", "\t", "-f", "1,2"], stdin=command1_output.stdout)
 
     command1_output.wait()
-
     pkg_versions = output.decode("utf-8").split("\n")
 
     tab = []
@@ -949,7 +998,8 @@ def format_pkg_version(command1_output, host_os):
                 p_v = pkg_version.split('^^')
 
                 if p_v[1][0].isdigit():
-                    version = reformatting_version(p_v[1])
+                    reformatting_version(p_v[1])
+                    version = parse_version(p_v[1])
                     name = p_v[0].split(":")
                     tab.append({
                         "name": name[0],
@@ -959,24 +1009,18 @@ def format_pkg_version(command1_output, host_os):
                 pass
 
     elif "alpine" in host_os:
-
         for pkg_version in pkg_versions:
-
             try:
-
                 pkg_version = pkg_version.split(" - ")[0]
                 p_v = pkg_version.split("-")
-
                 name = "-".join(p_v[:-2])
                 version = "-".join(p_v[-2:])
-
-                version = reformatting_version(version)
-
+                reformatting_version(version)
+                version = parse_version(version)
                 tab.append({
                     "name": name,
                     "version": version
                 })
-
             except:
                 pass
 
@@ -1002,6 +1046,8 @@ def network_host_audit(file):
         elif "ubuntu" in host_os:
             get_host_packages(["dpkg", "-l"], host_os, file, None)
         elif "debian" in host_os:
+            get_host_packages(["dpkg", "-l"], host_os, file, None)
+        elif "kali" in host_os:
             get_host_packages(["dpkg", "-l"], host_os, file, None)
         elif "rehl" in host_os:
             get_host_packages(["rpm", "-qa"], host_os, file, None)
@@ -1072,7 +1118,7 @@ def format_json_report(client_id, client_secret, file):
         file_content = file_in_read_mode.read()
 
     file_content = re.sub('\'', '"', file_content)
-
+    print(file_content)
     try:
         response = requests.post(
             url=WEBHOOK_URL,
@@ -1084,6 +1130,7 @@ def format_json_report(client_id, client_secret, file):
                 "data": json.dumps(file_content)
             }
         )
+        click.echo(response.json())
         if response.status_code != 200:
             click.echo("\nExecution error️")
             click.echo("Message: ", response.json()["detail"])
@@ -1104,34 +1151,74 @@ def export_data_to_csv(file, export_path):
 
     # Parse JSON
     data = json.loads(data)
-    first_key = next(iter(data))
+    csv_file = export_path
+    try:
+        first_key = next(iter(data))
+        # Open CSV file for writing
+        with open(csv_file, 'w', newline='') as csvfile:
+            # Create CSV writer object
+            csv_writer = csv.writer(csvfile)
 
-    # CSV file name
-    csv_file = f"{export_path}{first_key}.csv"
+            # Write header
+            csv_writer.writerow(
+                ["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version", "stack_type", "host_machine",
+                 "host_machine_architecture", "host_machine_os", "host_machine_hostname", "host_machine_mac"])
 
-    # Open CSV file for writing
-    with open(csv_file, 'w', newline='') as csvfile:
-        # Create CSV writer object
-        csv_writer = csv.writer(csvfile)
-
-        # Write header
-        csv_writer.writerow(["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version", "stack_type", "host_machine", "host_machine_architecture", "host_machine_os", "host_machine_hostname", "host_machine_mac"])
-
-        # Write data
-        for package in data[first_key]["packages"]:
-            csv_writer.writerow([data[first_key]["ip"], data[first_key]["mac"], data[first_key]["architecture"], first_key, data[first_key]["os"], package["name"], package["version"]])
+            # Write data
+            for package in data[first_key]["packages"]:
+                csv_writer.writerow(
+                    [data[first_key]["ip"], data[first_key]["mac"], data[first_key]["architecture"], first_key,
+                     data[first_key]["os"], package["name"], package["version"]])
+    except:
+        custom_exit(f'Unexpected error occurred. Cannot export assets to file {csv_file}')
     return csv_file
+
+
+def export_network_data_to_csv(file, export_path):
+    file_content = ""
+    with open(file, "r+") as file_in_read_mode:
+        file_content = file_in_read_mode.read()
+    file_content = re.sub('\'', '"', file_content)
+    data = file_content
+
+    # Parse JSON
+    data = json.loads(data)
+    csv_file = export_path
+    try:
+        first_key = next(iter(data))
+
+        # Open CSV file for writing
+        with open(csv_file, 'w', newline='') as csvfile:
+            # Create CSV writer object
+            csv_writer = csv.writer(csvfile)
+
+            # Write header
+            csv_writer.writerow(
+                ["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version", "stack_type",
+                 "host_machine",
+                 "host_machine_architecture", "host_machine_os", "host_machine_hostname", "host_machine_mac"])
+
+            # Write data
+            for package in data[first_key]["packages"]:
+                csv_writer.writerow(
+                    [data[first_key]["ipv4"], data[first_key]['os'].get('mac', None), data[first_key]['os']["arch"],
+                     data[first_key]['os']['host_name'],
+                     data[first_key]["os"]['os_name'], package["name"], package["version"]])
+    except:
+        custom_exit(f'Unexpected error occurred. Cannot export assets to file {csv_file}')
+    return csv_file
+
 
 def export_data_to_xlsx(file, export_path):
     file_content = ""
-    
+
     # Read the file content
     with open(file, "r+") as file_in_read_mode:
         file_content = file_in_read_mode.read()
 
     # Replace single quotes with double quotes
     file_content = re.sub('\'', '"', file_content)
-    
+
     # Parse JSON
     data = json.loads(file_content)
     first_key = next(iter(data))
@@ -1161,6 +1248,7 @@ def export_data_to_xlsx(file, export_path):
 
     return xlsx_file
 
+
 def export_data_to_json(file, export_path):
     file_content = ""
 
@@ -1183,6 +1271,7 @@ def export_data_to_json(file, export_path):
         json.dump(data, jsonfile, indent=2)
 
     return json_file
+
 
 def read_config(config_file: str = None):
     if not config_file:
@@ -1226,10 +1315,14 @@ def update_config(file_name, loaded_config_data, new_config):
         print(f"Cannot write config file. {e}")
 
 
-def run_not_network(client_id, secret_key, export, export_path, export_type):
+def run_not_network(client_id, secret_key, export, export_path, export_file):
     """
         By cmd execution
     """
+
+    if export is True:
+        click.echo('Exportation activated. Assets will not sent online...')
+
     with open("data", "w+") as file:
         # write the opening bracket of the json object
         file.writelines(["{"])
@@ -1241,45 +1334,38 @@ def run_not_network(client_id, secret_key, export, export_path, export_type):
         file.writelines([" ] } } "])
 
     file.close()
-    if export == True:
-        if export_type == 'csv':
-            export_data_to_csv("data", export_path)
-        elif export_type == 'xlsx':
-            export_data_to_xlsx("data", export_path)
-        elif export_type == 'json':
-            export_data_to_json("data", export_path)
-        return 
-    format_json_report(client_id, secret_key, "data")
+    if export is True:
+        full_path = Path(export_path) / export_file
+        export_data_to_csv("data", full_path)
+        custom_exit(f'Successfully exported assets to file {full_path}')
+    else:
+        format_json_report(client_id, secret_key, "data")
 
 
-def run_network(community, device, client_id, secret_key, export, export_path, export_type):
+def run_network(community, device, client_id, secret_key, export, export_path, export_file):
     """
         By snmp mibs 
     """
     if community is None:
         custom_exit("Execution error: the snmp community is not specified.\n")
     else:
+        if export is True:
+            click.echo('Exportation activated. Assets will not sent online...')
         try:
             hosts = get_snmp_hosts(device)
         except Exception as e:
             custom_exit(f"Execution error: {e}")
-        report = asyncio.run(getting_stacks_by_host_snmp(hosts, community))
-
+        report = asyncio.run(getting_stacks_by_host_snmp(sorted(hosts), community))
         with open("data", "w+") as file:
             file.write("%s" % report)
         file.close()
-        
-        if export == True:
-            if export_type == 'csv':
-                export_data_to_csv("data", export_path)
-            elif export_type == 'xlsx':
-                export_data_to_xlsx("data", export_path)
-            elif export_type == 'json':
-                export_data_to_json("data", export_path)
-            return 
-        
-        format_json_report(client_id, secret_key, "data")
-            
+
+        if export is True:
+            full_path = Path(export_path) / export_file
+            export_network_data_to_csv("data", full_path)
+            custom_exit(f'Successfully exported assets to file {full_path}')
+        else:
+            format_json_report(client_id, secret_key, "data")
 
 
 @click.command(cls=WatchmanCLI)
@@ -1292,18 +1378,32 @@ def configure():
     pass
 
 
+@configure.command(name="export", help='Save exportation configuration variables')
+@click.option("-a", "--activate", type=click.BOOL, default=False,
+              help="Activate exportation run mode. Default: False if option not set", required=False)
+@click.option('-p', '--path', type=click.Path(), default=os.path.expanduser('~'),
+              help="The path to the export directory. Default: Current user home directory", required=False)
+@click.option('-f', '--file-name', type=str, default='watchman_export_assets.csv',
+              help="The exportation file name. Default: watchman_export_assets.csv", required=False)
+def configure_exportation(activate, path, file_name):
+    cfg = Configuration()
+    config = cfg.create(config_file_path=configFile)
+    section = 'runtime'
+
+    if activate is not None:
+        config.set_value(section, 'export', value=activate)
+    if path:
+        config.set_value(section, 'export_path', value=path)
+    if file_name:
+        config.set_value(section, 'export_file', value=file_name)
+
+
 @configure.command(name="connect", help='Save connect configuration variables')
 @click.option("-m", "--mode", type=str, default='network',
               help="Runtime mode for agent execution [network/agent]. Default: agent", required=False)
-@click.option("-x", "--export", type=str, default=True,
-              help="This config is for exporting or not. Default: No", required=False)
-@click.option("-xt", "--export_type", type=str, default=True,
-              help="This config is for define type of export file. Types: csv, xlsx, json", required=False)
-@click.option("-xp", "--export_path", type=str, default='',
-              help="This config is for define folder for save file exported. Default: No", required=False)
 @click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
-def configure_connect(mode, export, export_type, export_path, client_id, client_secret):
+def configure_connect(mode, client_id, client_secret):
     cfg = Configuration()
     config = cfg.create(config_file_path=configFile)
     section = 'runtime'
@@ -1316,15 +1416,6 @@ def configure_connect(mode, export, export_type, export_path, client_id, client_
 
     if client_secret:
         config.set_value(section, 'secret_key', value=client_secret)
-
-    if export:
-        config.set_value(section, 'export', value=export)
-
-    if export_path:
-        config.set_value(section, 'export_path', value=export_path)
-
-    if export_type:
-        config.set_value(section, 'export_type', value=export_type)
 
     if client_secret:
         config.set_value(section, 'secret_key', value=client_secret)
@@ -1418,9 +1509,9 @@ def run():
     config = cfg.create(config_file_path=configFile)
 
     mode = config.get_value('runtime', 'mode', default='network')
-    export = config.get_value('runtime', 'export', default='No')
-    export_path = config.get_value('runtime', 'export_path', default='')
-    export_type = config.get_value('runtime', 'export_type', default='csv')
+    export = config.get_value('runtime', 'export', default=False)
+    export_path = config.get_value('runtime', 'export_path', default=os.path.expanduser('~'))
+    export_file = config.get_value('runtime', 'export_file', default='watchman_export_assets.csv')
     client_id = config.get_value('runtime', 'client_id')
     secret_key = config.get_value('runtime', 'secret_key')
     if None in [mode, client_id, secret_key]:
@@ -1434,7 +1525,6 @@ def run():
             "AGENT-SECRET": secret_key
         })
 
-        click.echo(f"Detail : {response} ")
         if response.status_code == 200:
             token = response.json()["token"]
             if token:
@@ -1458,16 +1548,19 @@ def run():
             custom_exit("TOKEN")
     except NoKeyringError as e:
         # use db method
-        with KeyDB(table_name="watchmanAgent", db=str(Path(__file__).resolve().parent) + "/" + "watchmanAgent.db") as obj:
+        with KeyDB(table_name="watchmanAgent",
+                   db=str(Path(__file__).resolve().parent) + "/" + "watchmanAgent.db") as obj:
             if obj.read_value("token") is None:
                 custom_exit("Authentication failed!!")
     """
         Getting stacks from the target 
     """
     if mode == 'agent':
-        run_not_network(client_id=client_id, secret_key=secret_key, export=export, export_path=export_path, export_type=export_type)
+        run_not_network(client_id=client_id, secret_key=secret_key, export=export, export_path=export_path,
+                        export_file=export_file)
     else:
-        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key, export=export, export_path=export_path, export_type=export_type)
+        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key, export=export,
+                    export_path=export_path, export_file=export_file)
 
 
 if __name__ == "__main__":
