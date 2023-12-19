@@ -1252,7 +1252,7 @@ def run_not_network(client_id, secret_key, export, export_path, export_type):
     format_json_report(client_id, secret_key, "data")
 
 
-def run_network(community, device, client_id, secret_key, export, export_path):
+def run_network(community, device, client_id, secret_key, export, export_path, export_type):
     """
         By snmp mibs 
     """
@@ -1270,7 +1270,12 @@ def run_network(community, device, client_id, secret_key, export, export_path):
         file.close()
         
         if export == True:
-            export_data_to_csv("data", export_path)
+            if export_type == 'csv':
+                export_data_to_csv("data", export_path)
+            elif export_type == 'xlsx':
+                export_data_to_xlsx("data", export_path)
+            elif export_type == 'json':
+                export_data_to_json("data", export_path)
             return 
         
         format_json_report(client_id, secret_key, "data")
@@ -1293,7 +1298,7 @@ def configure():
 @click.option("-x", "--export", type=str, default=True,
               help="This config is for exporting or not. Default: No", required=False)
 @click.option("-xt", "--export_type", type=str, default=True,
-              help="This config is for define type of export file. Default: No", required=False)
+              help="This config is for define type of export file. Types: csv, xlsx, json", required=False)
 @click.option("-xp", "--export_path", type=str, default='',
               help="This config is for define folder for save file exported. Default: No", required=False)
 @click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
