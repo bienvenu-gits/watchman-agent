@@ -24,7 +24,7 @@ from pysnmp.hlapi import *
 from sqlitedict import SqliteDict
 from semver.version import Version as sem_version
 from packaging import version as pkg_version
-import pandas as pd
+# import pandas as pd
 import re
 
 logging.basicConfig(level=logging.INFO)
@@ -1209,44 +1209,44 @@ def export_network_data_to_csv(file, export_path):
     return csv_file
 
 
-def export_data_to_xlsx(file, export_path):
-    file_content = ""
-
-    # Read the file content
-    with open(file, "r+") as file_in_read_mode:
-        file_content = file_in_read_mode.read()
-
-    # Replace single quotes with double quotes
-    file_content = re.sub('\'', '"', file_content)
-
-    # Parse JSON
-    data = json.loads(file_content)
-    first_key = next(iter(data))
-
-    # Create a list of dictionaries for the data
-    rows = []
-    for package in data[first_key]["packages"]:
-        row_data = {
-            "ip": data[first_key]["ip"],
-            "mac": data[first_key]["mac"],
-            "architecture": data[first_key]["architecture"],
-            "hostname": first_key,
-            "os": data[first_key]["os"],
-            "stack_name": package["name"],
-            "stack_version": package["version"]
-        }
-        rows.append(row_data)
-
-    # Create DataFrame from the list of dictionaries
-    df = pd.DataFrame(rows, columns=["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version"])
-
-    # Excel file name
-    xlsx_file = f"{export_path}{first_key}.xlsx"
-
-    # Write the DataFrame to an Excel file
-    df.to_excel(xlsx_file, index=False)
-
-    return xlsx_file
+# def export_data_to_xlsx(file, export_path):
+#     file_content = ""
+#
+#     # Read the file content
+#     with open(file, "r+") as file_in_read_mode:
+#         file_content = file_in_read_mode.read()
+#
+#     # Replace single quotes with double quotes
+#     file_content = re.sub('\'', '"', file_content)
+#
+#     # Parse JSON
+#     data = json.loads(file_content)
+#     first_key = next(iter(data))
+#
+#     # Create a list of dictionaries for the data
+#     rows = []
+#     for package in data[first_key]["packages"]:
+#         row_data = {
+#             "ip": data[first_key]["ip"],
+#             "mac": data[first_key]["mac"],
+#             "architecture": data[first_key]["architecture"],
+#             "hostname": first_key,
+#             "os": data[first_key]["os"],
+#             "stack_name": package["name"],
+#             "stack_version": package["version"]
+#         }
+#         rows.append(row_data)
+#
+#     # Create DataFrame from the list of dictionaries
+#     df = pd.DataFrame(rows, columns=["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version"])
+#
+#     # Excel file name
+#     xlsx_file = f"{export_path}{first_key}.xlsx"
+#
+#     # Write the DataFrame to an Excel file
+#     df.to_excel(xlsx_file, index=False)
+#
+#     return xlsx_file
 
 
 def export_data_to_json(file, export_path):
