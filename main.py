@@ -37,14 +37,14 @@ configFile = "config.yml"
 """
 env = Env()
 env.read_env()
-ENV = env("ENV_MODE")
+ENV = env("ENV_MODE", default="production")
 
-WEBHOOK_URL = env("WEBHOOK_URL")
-CONNECT_URL = env("CONNECT_URL")
+WEBHOOK_URL = env("WEBHOOK_URL", default="https://watchman.bj/api/agents/webhook/")
+CONNECT_URL = env("CONNECT_URL", default='https://watchman.bj/api/agents/connect')
 
 if ENV == "development":
-    WEBHOOK_URL = env("DEV_WEBHOOK_URL")
-    CONNECT_URL = env("DEV_CONNECT_URL")
+    WEBHOOK_URL = env("DEV_WEBHOOK_URL", default="http://localhost:3000/api/agents/webhook/")
+    CONNECT_URL = env("DEV_CONNECT_URL", default="http://localhost:3000/api/agents/connect")
 
 hour_range_value = 24
 
