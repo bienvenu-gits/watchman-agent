@@ -18,7 +18,7 @@ runtime:
   client_id: g6wW5YVrD6J3IwvY6DB4jEyq7iGQkVHJhwyDYHc0
   export: false
   export_file: watchman_export_assets.csv
-  export_path: /Users/elaunick/Projects/GITS/Watchmanagent/watchman_agent/
+  export_path: /home/near
   mode: agent
   secret_key: VGwDqOAT6CgtoPQL1WUCcsyBZiMHbXEHaXGQS1EQbyzOnbWTanTC6QVNrM4m
 schedule:
