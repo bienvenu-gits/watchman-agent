@@ -1,12 +1,11 @@
 network:
-  ip: 209.97.189.19
-  # ip: 192.168.100.0
   cidr: 24
   exempt:
-  - 192.168.8.24
   - 192.168.1.12
   - 192.168.6.10
   - 192.168.8.16
+  - 192.168.8.24
+  ip: 192.168.102.107
   snmp:
     port: 161
     v2:
@@ -16,9 +15,11 @@ network:
       priv_key: privkey1
       user: usr-sha-aes128
 runtime:
-  # mode: network
-  mode: agent
   client_id: g6wW5YVrD6J3IwvY6DB4jEyq7iGQkVHJhwyDYHc0
+  export: false
+  export_file: watchman_export_assets.csv
+  export_path: /home/near
+  mode: agent
   secret_key: VGwDqOAT6CgtoPQL1WUCcsyBZiMHbXEHaXGQS1EQbyzOnbWTanTC6QVNrM4m
 schedule:
   day: '*'

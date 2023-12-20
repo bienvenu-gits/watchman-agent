@@ -1,16 +1,18 @@
 requests==2.31.0
-setuptools==68.2.2
+setuptools==69.0.2
 scapy==2.5.0
 keyring==24.3.0
 python-crontab==3.0.0
-environs==9.5.0
+environs==10.0.0
 click==8.1.7
-cython==3.0.5
-pyinstaller==6.2.0
+cython==3.0.7
+pyinstaller==6.3.0
 sqlitedict==2.1.0
-paramiko==3.3.1
+paramiko==3.4.0
 pyyaml==6.0.1
 schedule==1.2.1
-pysnmplib==5.0.21
+pysnmplib==5.0.23
 semver==3.0.2
 packaging==23.2
+getmac==0.9.4
+# pandas==2.1.4
