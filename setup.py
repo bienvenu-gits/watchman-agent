@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="watchman-agent",
-    version="2.0.2",
+    version="2.0.3",
     author="Watchman",
     author_email="support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
@@ -14,7 +14,7 @@ setup(
     include_package_data=True,
     # py_modules=[''],
     package_data={
-        "watchman_agent": ["commands/**/*"]
+        "watchman_agent": ["commands/**/*", "commands/dist/*.env"]
     },
     install_requires=[
         'requests',

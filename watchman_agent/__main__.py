@@ -21,13 +21,11 @@ def run_cli_command(command):
         path = "" + str(Path(__file__).resolve().parent) + f"/commands/dist/main_{os}"
         c = [path]
         c.extend(command.split())
-        print(c)
         subprocess.run(c, shell=False)
     else:
         path = str(Path(__file__).resolve().parent) + "/commands/dist/main.exe"
         c = [path]
         c.extend(command.split())
-        print(c)
         subprocess.run(c, shell=False)
 
 
