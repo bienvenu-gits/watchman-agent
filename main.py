@@ -5,6 +5,7 @@ import ipaddress
 import json
 import logging
 import os
+import site
 import sys
 import threading
 import csv
@@ -31,9 +32,9 @@ import re
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-install_dir = os.path.dirname(os.path.abspath(__file__))
+install_dir = site.getsitepackages()[0]
 config_file = "config.yml"
-config_file = os.path.join(install_dir, config_file)
+config_path = os.path.join(install_dir, config_file)
 
 """
     Fetch Variables environment
@@ -1516,10 +1517,10 @@ def run():
     export = config.get_value('runtime', 'export', default=False)
     export_path = config.get_value('runtime', 'export_path', default=os.path.expanduser('~'))
     export_file = config.get_value('runtime', 'export_file', default='watchman_export_assets.csv')
-    client_id = config.get_value('runtime', 'client_id')
-    secret_key = config.get_value('runtime', 'secret_key')
+    client_id = config.get_value('runtime', 'client_id', default=None)
+    secret_key = config.get_value('runtime', 'secret_key', default=None)
     if None in [mode, client_id, secret_key]:
-        click.echo("\nPlease configure agent! Check help to see how to configure.")
+        click.echo("\nPlease configure agent connect parameters! Check help to see how to configure.")
 
     community = config.get_value('network', 'snmp', 'v2', 'community', default='public')
     network = config.get_value('network', 'ip')
