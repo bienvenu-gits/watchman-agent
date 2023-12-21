@@ -1176,7 +1176,7 @@ def export_data_to_csv(file, export_path):
             for package in data[first_key]["packages"]:
                 csv_writer.writerow(
                     [data[first_key]["ipv4"], data[first_key]["mac"], data[first_key]["architecture"], first_key,
-                     data[first_key]["os"], package["name"], package["version"]])
+                     data[first_key]["os"]['os_name'], package["name"], package["version"]])
     except Exception as e:
         custom_exit(f'Unexpected error occurred. Cannot export assets to file {csv_file}')
     return csv_file
