@@ -157,7 +157,7 @@ def configure():
               help="The exportation file name. Default: watchman_export_assets.csv", required=False)
 def configure_exportation(activate, path, file_name):
     if activate is not None:
-        run_cli_command(f'configure export --activate {activate}')
+        run_cli_command(f"configure export --activate {'true' if activate == True else 'false' }")
     if path:
         run_cli_command(f'configure export --path {path}')
     if file_name:
