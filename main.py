@@ -5,13 +5,13 @@ import ipaddress
 import json
 import logging
 import os
-import site
-import sys
 import threading
 import csv
 import platform as pt
 import time
 import subprocess
+
+import platformdirs
 import yaml
 import getmac
 import platform
@@ -32,9 +32,11 @@ import re
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-install_dir = site.getsitepackages()[0]
+data_dir = platformdirs.user_config_dir('WatchmanAgent')
+os.makedirs(data_dir, exist_ok=True)
 config_file = "config.yml"
-config_path = os.path.join(install_dir, config_file)
+config_file = os.path.join(data_dir, config_file)
+
 
 """
     Fetch Variables environment
@@ -1384,8 +1386,7 @@ def configure():
 
 
 @configure.command(name="export", help='Save exportation configuration variables')
-@click.option("-a", "--activate", type=click.BOOL, default=False,
-              help="Activate exportation run mode. Default: False if option not set", required=False)
+@click.option("-a", "--activate", is_flag=True, type=click.BOOL, help="Activate exportation run mode. Default: False if option not set")
 @click.option('-p', '--path', type=click.Path(), default=os.path.expanduser('~'),
               help="The path to the export directory. Default: Current user home directory", required=False)
 @click.option('-f', '--file-name', type=str, default='watchman_export_assets.csv',
@@ -1395,8 +1396,11 @@ def configure_exportation(activate, path, file_name):
     config = cfg.create(config_file_path=config_file)
     section = 'runtime'
 
-    if activate is not None:
-        config.set_value(section, 'export', value=True if activate is True else False)
+    if activate:
+        config.set_value(section, 'export', value=True)
+    else:
+        config.set_value(section, 'export', value=False)
+
     if path:
         config.set_value(section, 'export_path', value=path)
     if file_name:
