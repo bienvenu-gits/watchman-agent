@@ -561,7 +561,7 @@ async def get_packages_async(hostname, community, os_name):
     def parse_version_append(ver, res, host):
         ver = parse_version(ver)
         d = {
-            "name": pkg_info['name'],
+            "name": pkg_info['name'].replace("'", ","),
             "version": ver,
         }
         res.append(d)
@@ -1352,7 +1352,7 @@ def run_not_network(client_id, secret_key, export, export_path, export_file):
 
 def run_network(community, device, client_id, secret_key, export, export_path, export_file):
     """
-        By snmp mibs 
+        By snmp mibs
     """
     if community is None:
         custom_exit("Execution error: the snmp community is not specified.\n")

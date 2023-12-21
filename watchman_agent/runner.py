@@ -561,7 +561,7 @@ async def get_packages_async(hostname, community, os_name):
     def parse_version_append(ver, res, host):
         ver = parse_version(ver)
         d = {
-            "name": pkg_info['name'],
+            "name": pkg_info['name'].replace("'", ","),
             "version": ver,
         }
         res.append(d)
