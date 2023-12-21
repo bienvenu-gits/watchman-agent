@@ -169,6 +169,7 @@ class YamlFileConfiguration:
 
     def load_config(self):
         if self.config_file_path is not None and os.path.exists(self.config_file_path):
+            click.echo(f"Loading config from {self.config_file_path}")
             with open(self.config_file_path, 'r') as yaml_file:
                 self.config = yaml.safe_load(yaml_file)
         else:
@@ -1386,7 +1387,7 @@ def configure():
 
 
 @configure.command(name="export", help='Save exportation configuration variables')
-@click.option("-a", "--activate", is_flag=True, type=click.BOOL, help="Activate exportation run mode. Default: False if option not set")
+@click.option("-a", "--activate", is_flag=True, help="Activate exportation run mode. Default: False if option not set")
 @click.option('-p', '--path', type=click.Path(), default=os.path.expanduser('~'),
               help="The path to the export directory. Default: Current user home directory", required=False)
 @click.option('-f', '--file-name', type=str, default='watchman_export_assets.csv',
@@ -1548,7 +1549,6 @@ def run():
         else:
             click.echo("\nRUN")
             click.echo("\nAuthentication failed!!")
-            click.echo(f"{response.json()}")
     except requests.exceptions.RequestException as e:
         request_error(error=e)
     try:
