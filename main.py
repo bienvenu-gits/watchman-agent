@@ -31,7 +31,9 @@ import re
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-configFile = "config.yml"
+install_dir = os.path.dirname(os.path.abspath(__file__))
+config_file = "config.yml"
+config_file = os.path.join(install_dir, config_file)
 
 """
     Fetch Variables environment
@@ -153,7 +155,7 @@ class YamlFileConfiguration:
 
     def __new__(cls, config_file_path=None):
         if not config_file_path:
-            config_file_path = configFile
+            config_file_path = config_file
 
         if cls._instance is None:
             cls._instance = super(YamlFileConfiguration, cls).__new__(cls)
@@ -167,6 +169,7 @@ class YamlFileConfiguration:
             with open(self.config_file_path, 'r') as yaml_file:
                 self.config = yaml.safe_load(yaml_file)
         else:
+            click.echo(f"Loading config from {self.config_file_path}")
             # If it doesn't exist, create an empty YAML file
             with open(self.config_file_path, 'w') as yaml_file:
                 yaml.dump({}, yaml_file, default_flow_style=False)
@@ -206,7 +209,7 @@ class YamlFileConfiguration:
 
 class Configuration:
     @staticmethod
-    def create(config_file_path=configFile):
+    def create(config_file_path=config_file):
         if config_file_path and config_file_path.endswith('.yml'):
             return YamlFileConfiguration(config_file_path)
         else:
@@ -712,7 +715,7 @@ def scan_up_host_and_append(ip, active_hosts):
 
 def get_snmp_hosts(network):
     cfg = Configuration()
-    config = cfg.create(config_file_path=configFile)
+    config = cfg.create(config_file_path=config_file)
     active_hosts = set()
     cidr = config.get_value('network', 'cidr', default=24)
     snmp_port = config.get_value('network', 'snmp', 'port', default=161)
@@ -1276,7 +1279,7 @@ def export_data_to_json(file, export_path):
 
 def read_config(config_file: str = None):
     if not config_file:
-        file_name = configFile
+        file_name = config_file
     else:
         file_name = config_file
 
@@ -1388,11 +1391,11 @@ def configure():
               help="The exportation file name. Default: watchman_export_assets.csv", required=False)
 def configure_exportation(activate, path, file_name):
     cfg = Configuration()
-    config = cfg.create(config_file_path=configFile)
+    config = cfg.create(config_file_path=config_file)
     section = 'runtime'
 
     if activate is not None:
-        config.set_value(section, 'export', value=activate)
+        config.set_value(section, 'export', value=True if activate is True else False)
     if path:
         config.set_value(section, 'export_path', value=path)
     if file_name:
@@ -1406,7 +1409,7 @@ def configure_exportation(activate, path, file_name):
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
 def configure_connect(mode, client_id, client_secret):
     cfg = Configuration()
-    config = cfg.create(config_file_path=configFile)
+    config = cfg.create(config_file_path=config_file)
     section = 'runtime'
 
     if mode:
@@ -1437,7 +1440,7 @@ def configure_connect(mode, client_id, client_secret):
                                                "192.168.1.12,", required=False)
 def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, snmp_auth_key, snmp_priv_key, snmp_user):
     cfg = Configuration()
-    config = cfg.create(config_file_path=configFile)
+    config = cfg.create(config_file_path=config_file)
     section = 'network'
     if snmp_community:
         config.set_value(section, 'snmp', 'v2', 'community', value=snmp_community)
@@ -1480,7 +1483,7 @@ def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, s
 @click.option("-mo", "--month", type=int, help="Execution every month.", required=False)
 def configure_schedule(minute, hour, day, month):
     cfg = Configuration()
-    config = cfg.create(config_file_path=configFile)
+    config = cfg.create(config_file_path=config_file)
     section = 'schedule'
 
     if minute:
@@ -1507,7 +1510,7 @@ def configure_schedule(minute, hour, day, month):
 @cli.command(name='run', help='Attach monitoring to cron job and watch for stacks')
 def run():
     cfg = Configuration()
-    config = cfg.create(config_file_path=configFile)
+    config = cfg.create(config_file_path=config_file)
 
     mode = config.get_value('runtime', 'mode', default='network')
     export = config.get_value('runtime', 'export', default=False)
