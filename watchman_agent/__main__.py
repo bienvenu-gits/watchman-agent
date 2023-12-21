@@ -2,7 +2,6 @@ import ipaddress
 import json
 import os
 import platform
-import site
 import subprocess
 from functools import cached_property
 from pathlib import Path
@@ -13,9 +12,6 @@ from keyring.errors import NoKeyringError
 from sqlitedict import SqliteDict
 
 watchmanAgentDb = "watchmanAgent.db"
-install_dir = site.getsitepackages()[0]
-config_file = "config.yml"
-config_path = os.path.join(install_dir, config_file)
 
 
 def run_cli_command(command):
@@ -152,19 +148,15 @@ def configure():
 
 
 @configure.command(name="export", help='Save exportation configuration variables')
-@click.option("-a", "--activate", type=click.BOOL, default=False,
-              help="Activate exportation run mode. Default: False if option not set", required=False)
+@click.option("-a", "--activate", is_flag=True, type=click.BOOL,
+              help="Activate exportation run mode. Default: False if option not set")
 @click.option('-p', '--path', type=click.Path(), default=os.path.expanduser('~'),
               help="The path to the export directory. Default: Current user home directory", required=False)
 @click.option('-f', '--file-name', type=str, default='watchman_export_assets.csv',
               help="The exportation file name. Default: watchman_export_assets.csv", required=False)
 def configure_exportation(activate, path, file_name):
-    if activate is not None:
-        if activate is True:
-            print(activate)
-            run_cli_command(f"configure export --activate true")
-        else:
-            run_cli_command(f"configure export --activate false")
+    if activate:
+        run_cli_command(f'configure export --activate')
     if path:
         run_cli_command(f'configure export --path {path}')
     if file_name:

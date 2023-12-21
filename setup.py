@@ -34,6 +34,7 @@ setup(
         'openpyxl',
         # 'pandas',
         'getmac',
+        'platformdirs',
     ],
 
     # entry_points={  # Optional
