@@ -148,8 +148,7 @@ def configure():
 
 
 @configure.command(name="export", help='Save exportation configuration variables')
-@click.option("-a", "--activate", is_flag=True, type=click.BOOL,
-              help="Activate exportation run mode. Default: False if option not set")
+@click.option("-a", "--activate", is_flag=True, help="Activate exportation run mode. Default: False if option not set")
 @click.option('-p', '--path', type=click.Path(), default=os.path.expanduser('~'),
               help="The path to the export directory. Default: Current user home directory", required=False)
 @click.option('-f', '--file-name', type=str, default='watchman_export_assets.csv',
@@ -157,6 +156,9 @@ def configure():
 def configure_exportation(activate, path, file_name):
     if activate:
         run_cli_command(f'configure export --activate')
+    else:
+        run_cli_command(f'configure export')
+
     if path:
         run_cli_command(f'configure export --path {path}')
     if file_name:
