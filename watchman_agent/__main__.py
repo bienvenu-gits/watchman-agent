@@ -12,7 +12,9 @@ from keyring.errors import NoKeyringError
 from sqlitedict import SqliteDict
 
 watchmanAgentDb = "watchmanAgent.db"
-configYml = "config.yml"
+install_dir = os.path.dirname(os.path.abspath(__file__))
+config_file = "config.yml"
+config_file = os.path.join(install_dir, config_file)
 
 
 def run_cli_command(command):
@@ -157,7 +159,11 @@ def configure():
               help="The exportation file name. Default: watchman_export_assets.csv", required=False)
 def configure_exportation(activate, path, file_name):
     if activate is not None:
-        run_cli_command(f"configure export --activate {'true' if activate == True else 'false' }")
+        if activate is True:
+            print(activate)
+            run_cli_command(f"configure export --activate true")
+        else:
+            run_cli_command(f"configure export --activate false")
     if path:
         run_cli_command(f'configure export --path {path}')
     if file_name:
