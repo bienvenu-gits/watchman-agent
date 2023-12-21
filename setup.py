@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="watchman-agent",
-    version="2.1.4",
+    version="2.1.5",
     author="Watchman",
     author_email="support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
@@ -11,11 +11,7 @@ setup(
         include=['watchman_agent.*']
     ),
     python_requires='>=3.8',
-    include_package_data=True,
     # py_modules=[''],
-    # package_data={
-    #     "watchman_agent": ["commands/**/*", "commands/*", "commands/dist/*", "commands/dist/*.env"]
-    # },
     install_requires=[
         'requests',
         'sqlitedict',
@@ -39,7 +35,7 @@ setup(
 
     entry_points={  # Optional
         "console_scripts": [
-            "watchman-agent=watchman_agent.runner:cli",
+            "watchman-agent=watchman_agent.__main__:cli",
         ],
     },
 
