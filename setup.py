@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="watchman-agent",
-    version="2.1.0",
+    version="2.1.1",
     author="Watchman",
     author_email="support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
@@ -32,6 +32,7 @@ setup(
         'semver',
         'packaging',
         'openpyxl',
+        'site',
         # 'pandas',
         'getmac',
     ],

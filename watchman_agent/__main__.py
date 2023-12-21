@@ -2,6 +2,7 @@ import ipaddress
 import json
 import os
 import platform
+import site
 import subprocess
 from functools import cached_property
 from pathlib import Path
@@ -12,9 +13,9 @@ from keyring.errors import NoKeyringError
 from sqlitedict import SqliteDict
 
 watchmanAgentDb = "watchmanAgent.db"
-install_dir = os.path.dirname(os.path.abspath(__file__))
+install_dir = site.getsitepackages()[0]
 config_file = "config.yml"
-config_file = os.path.join(install_dir, config_file)
+config_path = os.path.join(install_dir, config_file)
 
 
 def run_cli_command(command):
