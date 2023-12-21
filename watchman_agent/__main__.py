@@ -169,15 +169,9 @@ def configure_exportation(activate, path, file_name):
               help="Runtime mode for agent execution [network/agent]. Default: agent", required=False)
 @click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
-@click.option("-x", "--export", type=str, default=True,
-              help="This config is for exporting or not. Default: No", required=False)
-@click.option("-xt", "--export_type", type=str, default=True,
-              help="This config is for define type of export file. Types: csv, xlsx, json", required=False)
-@click.option("-xp", "--export_path", type=str, default='',
-              help="This config is for define folder for save file exported. Default: No", required=False)
-def configure_connect(mode, client_id, client_secret, export, export_type, export_path):
+def configure_connect(mode, client_id, client_secret):
     if mode or client_id and client_secret:
-        run_cli_command(f'configure connect --mode {mode} --client-id {client_id} --client-secret {client_secret} --export {export or None} --export_type {export_type or None} --export_path {export_path or None}')
+        run_cli_command(f'configure connect --mode {mode} --client-id {client_id} --client-secret {client_secret}')
 
 
 @configure.command(name="network", help='Save network configuration variables')

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="watchman-agent",
-    version="2.0.7",
+    version="2.0.8",
     author="Watchman",
     author_email="support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
@@ -16,7 +16,6 @@ setup(
     package_data={
         "watchman_agent": ["commands/**/*", "commands/*", "commands/dist/*", "commands/dist/*.env"]
     },
-    # data_files=[('commands/dist', ['commands/dist/main_darwin', 'commands/dist/main.exe', 'commands/dist/main_linux', 'commands/dist/.env'])],
     install_requires=[
         'requests',
         'sqlitedict',
