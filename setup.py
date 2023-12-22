@@ -33,10 +33,8 @@ setup(
         'platformdirs',
     ],
 
-    entry_points={  # Optional
-        "console_scripts": [
-            "watchman-agent=watchman_agent.__main__:cli",
-        ],
-    },
-
+    entry_points='''
+        [console_scripts]
+        watchman-agent=watchman_agent.__main__:cli
+    '''
 )
