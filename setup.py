@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="watchman-agent",
-    version="2.1.9",
+    version="2.2.0",
     author="Watchman",
     author_email="support@watchman.bj",
     # description = "Watchman Agent 1.0.0",
@@ -33,10 +33,8 @@ setup(
         'platformdirs',
     ],
 
-    entry_points={  # Optional
-        "console_scripts": [
-            "watchman-agent=watchman_agent.__main__:cli",
-        ],
-    },
-
+    entry_points='''
+        [console_scripts]
+        watchman-agent=watchman_agent.__main__:cli
+    '''
 )
