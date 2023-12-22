@@ -37,7 +37,6 @@ os.makedirs(data_dir, exist_ok=True)
 config_file = "config.yml"
 config_file = os.path.join(data_dir, config_file)
 
-
 """
     Fetch Variables environment
 """
@@ -224,9 +223,9 @@ def custom_exit(message: str):
     raise SystemExit(message)
 
 
-def get_possible_active_hosts(ip_address, cidr):
+def get_possible_active_hosts(ip_address, cidr, exempt):
     if not is_valid_ip(ip_address):
-        raise ValueError("Invalid ip address")
+        raise ValueError(f"Invalid ip address {ip_address}")
 
     cidr_format = f'{ip_address}/{cidr}'
     # Utilisez la bibliothèque ipaddress pour analyser le CIDR
@@ -236,12 +235,53 @@ def get_possible_active_hosts(ip_address, cidr):
     hosts = set()
 
     threads = []
+    exempt.append(str(network.network_address))
+    exempt.append(str(network.broadcast_address))
     for ip in network.hosts():
-        if ip in (network.network_address, network.broadcast_address):
+        host = str(ip)
+        if host in exempt:
             # Skip network and broadcast addresses
             continue
 
+        thread = threading.Thread(target=scan_up_host_and_append, args=(host, hosts))
+        thread.start()
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
+
+    return hosts
+
+
+def get_possible_active_hosts_by_range(ip_start, ip_end, exempt):
+    def generate_ip_range(start_ip, end_ip):
+        start = ipaddress.ip_address(start_ip)
+        end = ipaddress.ip_address(end_ip)
+        ips = list(ipaddress.summarize_address_range(start, end))
+        ip_list = []
+        for network in ips:
+            ip_list.extend(list(network.hosts()))
+        # Include the start IP in the list
+        ip_list.append(start)
+        return ip_list
+
+    if not is_valid_ip(ip_start):
+        raise ValueError(f"Invalid range start ip address {ip_start}")
+
+    if not is_valid_ip(ip_end):
+        raise ValueError(f"Invalid range end ip address {ip_end}")
+
+    ip_range = generate_ip_range(ip_start, ip_end)
+
+    # Obtenez la liste des adresses IP possibles dans le réseau
+    hosts = set()
+
+    threads = []
+    for ip in ip_range:
         host = str(ip)
+        if host in exempt:
+            # Skip network and broadcast addresses
+            continue
         thread = threading.Thread(target=scan_up_host_and_append, args=(host, hosts))
         thread.start()
         threads.append(thread)
@@ -561,7 +601,7 @@ async def get_packages_async(hostname, community, os_name):
     def parse_version_append(ver, res, host):
         ver = parse_version(ver)
         d = {
-            "name": pkg_info['name'].replace("'", ",").replace('"', ","),
+            "name": pkg_info['name'].replace('"', ",") if '"' in pkg_info['name'] else pkg_info['name'],
             "version": ver,
         }
         res.append(d)
@@ -717,20 +757,23 @@ def scan_up_host_and_append(ip, active_hosts):
     return active_hosts
 
 
-def get_snmp_hosts(network):
+def get_snmp_hosts(network, use_range, range_start, range_end):
     cfg = Configuration()
     config = cfg.create(config_file_path=config_file)
     active_hosts = set()
     cidr = config.get_value('network', 'cidr', default=24)
+    exempt = config.get_value('network', 'exempt')
     snmp_port = config.get_value('network', 'snmp', 'port', default=161)
-
-    if not network:
-        raise ValueError("The network ip address must be provided.")
 
     if not snmp_port:
         raise ValueError("The configured snmp port must be provided.")
 
-    hosts = get_possible_active_hosts(ip_address=network, cidr=cidr)
+    if network and use_range:
+        if not range_start or not range_end:
+            raise ValueError("The network range ip address must be provided.")
+        hosts = get_possible_active_hosts_by_range(range_start, range_end, exempt=exempt)
+    else:
+        hosts = get_possible_active_hosts(ip_address=network, cidr=cidr, exempt=exempt)
 
     threads = []
     for host in hosts:
@@ -740,7 +783,6 @@ def get_snmp_hosts(network):
 
     for thread in threads:
         thread.join()
-
     return active_hosts
 
 
@@ -853,7 +895,7 @@ def get_host_packages(command, host_os, file, container):
     mac = get_mac_address()
     ip = get_ip_address()
     architecture = get_os_architecture()
-    hostname=get_os_hostname(ip)
+    hostname = get_os_hostname(ip)
     if host_os == 'Windows':
         command_output = subprocess.check_output(command, text=True)
         output_list = command_output.split('\n')
@@ -916,7 +958,7 @@ def get_host_packages(command, host_os, file, container):
         "os_name": host_os,
         "mac": mac,
         "arch": architecture,
-        "host_name":hostname,
+        "host_name": hostname,
         "kernel_version": platform.release()
     }
 
@@ -1169,7 +1211,8 @@ def export_data_to_csv(file, export_path):
 
             # Write header
             csv_writer.writerow(
-                ["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version", "stack_type", "host_machine",
+                ["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version", "stack_type",
+                 "host_machine",
                  "host_machine_architecture", "host_machine_os", "host_machine_hostname", "host_machine_mac"])
 
             # Write data
@@ -1350,7 +1393,7 @@ def run_not_network(client_id, secret_key, export, export_path, export_file):
         format_json_report(client_id, secret_key, "data")
 
 
-def run_network(community, device, client_id, secret_key, export, export_path, export_file):
+def run_network(community, device, use_range, range_start, range_end, client_id, secret_key, export, export_path, export_file):
     """
         By snmp mibs
     """
@@ -1359,8 +1402,9 @@ def run_network(community, device, client_id, secret_key, export, export_path, e
     else:
         if export is True:
             click.echo('Exportation activated. Assets will not sent online...')
+
         try:
-            hosts = get_snmp_hosts(device)
+            hosts = get_snmp_hosts(device, use_range, range_start, range_end)
         except Exception as e:
             custom_exit(f"Execution error: {e}")
         report = asyncio.run(getting_stacks_by_host_snmp(sorted(hosts), community))
@@ -1432,7 +1476,10 @@ def configure_connect(mode, client_id, client_secret):
 
 
 @configure.command(name="network", help='Save network configuration variables')
+@click.option("-r", "--use-range", is_flag=True, help="Use target ip address range instead of cidr.")
 @click.option("-t", "--network-target", type=IpType(), help="The network target ip address.", required=False)
+@click.option("-rs", "--range-start", type=IpType(), help="The network target range start ip address.", required=False)
+@click.option("-re", "--range-end", type=IpType(), help="The network target range end ip address.", required=False)
 @click.option("-m", "--cidr", type=int, help="The mask in CIDR annotation. Default: 24 \neg: --cidr 24", default=24,
               required=True)
 @click.option("-c", "--snmp-community", type=str, help="SNMP community used to authenticate the SNMP management "
@@ -1444,7 +1491,8 @@ def configure_connect(mode, client_id, client_secret):
 @click.option("-s", "--snmp-priv-key", type=str, help="SNMP private key", required=False)
 @click.option("-e", "--exempt", type=str, help="Device list to ignore when getting stacks. eg: --exempt "
                                                "192.168.1.12,", required=False)
-def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, snmp_auth_key, snmp_priv_key, snmp_user):
+def configure_network(snmp_community, snmp_port, network_target, cidr, use_range, range_start, range_end, exempt,
+                      snmp_auth_key, snmp_priv_key, snmp_user):
     cfg = Configuration()
     config = cfg.create(config_file_path=config_file)
     section = 'network'
@@ -1459,6 +1507,13 @@ def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, s
 
     if snmp_priv_key:
         config.set_value(section, 'snmp', 'v3', 'priv_key', value=snmp_priv_key)
+
+    if use_range:
+        config.set_value(section, 'use_range', value=True)
+        if None in [range_end, range_start]:
+            custom_exit("\nPlease add network ip address range parameters! \nNeeded Options: --range-start, --range-end\nSee --help for how to configure network options.")
+    else:
+        config.set_value(section, 'use_range', value=False)
 
     if exempt:
         exempt = [w for w in str(exempt).strip().split(',') if w != ""]
@@ -1477,6 +1532,12 @@ def configure_network(snmp_community, snmp_port, network_target, cidr, exempt, s
 
     if network_target:
         config.set_value(section, 'ip', value=network_target)
+
+    if range_start:
+        config.set_value(section, 'range_start', value=range_start)
+
+    if range_end:
+        config.set_value(section, 'range_end', value=range_end)
 
     if cidr:
         config.set_value(section, 'cidr', value=cidr)
@@ -1529,6 +1590,10 @@ def run():
 
     community = config.get_value('network', 'snmp', 'v2', 'community', default='public')
     network = config.get_value('network', 'ip')
+    use_range = config.get_value('network', 'use_range', default=False)
+    range_start = config.get_value('network', 'range_start')
+    range_end = config.get_value('network', 'range_end')
+
     try:
         response = requests.get(CONNECT_URL, headers={
             "AGENT-ID": client_id,
@@ -1568,7 +1633,8 @@ def run():
         run_not_network(client_id=client_id, secret_key=secret_key, export=export, export_path=export_path,
                         export_file=export_file)
     else:
-        run_network(community=community, device=network, client_id=client_id, secret_key=secret_key, export=export,
+        run_network(community=community, device=network, use_range=use_range, range_start=range_start,
+                    range_end=range_end, client_id=client_id, secret_key=secret_key, export=export,
                     export_path=export_path, export_file=export_file)
 
 
