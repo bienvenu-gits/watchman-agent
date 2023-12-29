@@ -10,6 +10,7 @@ import csv
 import platform as pt
 import time
 import subprocess
+from pprint import pprint
 
 import platformdirs
 import yaml
@@ -32,10 +33,17 @@ import re
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+"""
+    Set config directory and files
+"""
 data_dir = platformdirs.user_config_dir('WatchmanAgent')
 os.makedirs(data_dir, exist_ok=True)
 config_file = "config.yml"
+tracking_file = "track.yml"
+result_file = "data.json"
 config_file = os.path.join(data_dir, config_file)
+tracking_file = os.path.join(data_dir, tracking_file)
+result_file = os.path.join(data_dir, result_file)
 
 """
     Fetch Variables environment
@@ -48,6 +56,7 @@ WEBHOOK_URL = env("WEBHOOK_URL", default="https://watchman.bj/api/agents/webhook
 CONNECT_URL = env("CONNECT_URL", default='https://watchman.bj/api/agents/connect')
 
 if ENV == "development":
+    # Override production env variable in development
     WEBHOOK_URL = env("DEV_WEBHOOK_URL", default="http://localhost:3000/api/agents/webhook/")
     CONNECT_URL = env("DEV_CONNECT_URL", default="http://localhost:3000/api/agents/connect")
 
@@ -102,7 +111,6 @@ class IpType(click.ParamType):
             try:
                 ipaddress.ip_address(value)
             except ValueError as e:
-                print('failed')
                 self.fail(
                     str(e),
                     param,
@@ -168,11 +176,13 @@ class YamlFileConfiguration:
 
     def load_config(self):
         if self.config_file_path is not None and os.path.exists(self.config_file_path):
-            click.echo(f"Loading config from {self.config_file_path}")
+            # click.echo(f"Loading config from {self.config_file_path}")
+            click.echo(f"[+] - Loading agent configuration...")
             with open(self.config_file_path, 'r') as yaml_file:
                 self.config = yaml.safe_load(yaml_file)
         else:
-            click.echo(f"Loading config from {self.config_file_path}")
+            # click.echo(f"Loading config from {self.config_file_path}")
+            click.echo(f"[+] - Loading agent configuration...")
             # If it doesn't exist, create an empty YAML file
             with open(self.config_file_path, 'w') as yaml_file:
                 yaml.dump({}, yaml_file, default_flow_style=False)
@@ -204,15 +214,101 @@ class YamlFileConfiguration:
         except yaml.YAMLError as e:
             print(f"Cannot update config file. {e}")
 
+    def read_and_display_config(self):
+        click.echo(f"[+] - Displaying agent configuration...")
+        config = {}
+        for key, value in self.config.items():
+            self._display_config_recursive(key, value, config)
+        pprint(config, indent=2, sort_dicts=True)
+
+    def _display_config_recursive(self, prefix, config_section, config):
+        if isinstance(config_section, dict):
+            config[prefix] = config_section
+        else:
+            config[prefix] = config_section
+
     def save_config_to_file(self):
         if self.config and self.config_file_path:
             with open(self.config_file_path, 'w') as yaml_file:
                 yaml.dump(self.config, yaml_file, default_flow_style=False)
 
 
+class Tracking:
+    def __init__(self, file_path, backup_path):
+        self.file_path = file_path
+        self.backup_path = backup_path
+        self.current_data = None
+        self.previous_data = None
+
+    def read_file(self):
+        with open(self.file_path, 'r') as file:
+            self.current_data = json.load(file)
+
+    def save_backup(self):
+        if not os.path.exists(self.backup_path):
+            os.makedirs(self.backup_path)
+
+        backup_file = os.path.join(self.backup_path, f"backup_{len(os.listdir(self.backup_path)) + 1}.json")
+
+        if self.current_data is not None:
+            with open(backup_file, 'w') as file:
+                json.dump(self.current_data, file, indent=2)
+
+    def track_changes(self):
+        if self.previous_data is None:
+            print("No previous data to compare.")
+            return
+
+        changes = {
+            "added": {},
+            "modified": {},
+            "deleted": {}
+        }
+
+        for key in set(self.current_data.keys()).union(set(self.previous_data.keys())):
+            if key not in self.previous_data:
+                changes["added"][key] = self.current_data[key]
+            elif key not in self.current_data:
+                changes["deleted"][key] = self.previous_data[key]
+            elif self.current_data[key] != self.previous_data[key]:
+                changes["modified"][key] = {
+                    "old_value": self.previous_data[key],
+                    "new_value": self.current_data[key]
+                }
+
+        return changes
+
+    def isolate_changes(self, changes_file_path):
+        changes = self.track_changes()
+        if not changes:
+            print("No changes detected.")
+            return
+
+        with open(changes_file_path, 'w') as file:
+            json.dump(changes, file, indent=2)
+
+    def display_changes(self):
+        changes = self.track_changes()
+
+        if not changes:
+            print("No changes to display.")
+            return
+
+        print("Changes:")
+        print(json.dumps(changes, indent=2))
+
+    def update_file(self, new_data):
+        self.read_file()
+        self.previous_data = deepcopy(self.current_data)
+        self.current_data = new_data
+
+        with open(self.file_path, 'w') as file:
+            json.dump(new_data, file, indent=2)
+
+
 class Configuration:
     @staticmethod
-    def create(config_file_path=config_file):
+    def load(config_file_path=config_file):
         if config_file_path and config_file_path.endswith('.yml'):
             return YamlFileConfiguration(config_file_path)
         else:
@@ -240,7 +336,7 @@ def get_possible_active_hosts(ip_address, cidr, exempt):
     for ip in network.hosts():
         host = str(ip)
         if host in exempt:
-            # Skip network and broadcast addresses
+            # Skip exempted address
             continue
 
         thread = threading.Thread(target=scan_up_host_and_append, args=(host, hosts))
@@ -280,7 +376,7 @@ def get_possible_active_hosts_by_range(ip_start, ip_end, exempt):
     for ip in ip_range:
         host = str(ip)
         if host in exempt:
-            # Skip network and broadcast addresses
+            # Skip exempted addresses
             continue
         thread = threading.Thread(target=scan_up_host_and_append, args=(host, hosts))
         thread.start()
@@ -302,6 +398,9 @@ def is_valid_ip(ip):
 
 
 def is_ip_active(ip, all_active=False):
+    if all_active:
+        return True
+
     try:
         # Attempt to create a socket connection to the IP address and port 0
         socket.inet_pton(socket.AF_INET, ip)
@@ -484,7 +583,8 @@ def get_mac_address():
         mac_address = getmac.get_mac_address()
         return mac_address
     except Exception as e:
-        return f"Error: {e}"
+        click.echo(f'Cannot find host mac address: {e}')
+        return None
 
 
 def get_os_architecture():
@@ -504,13 +604,26 @@ def get_ip_address():
         s.close()
         return ip_address
     except Exception as e:
-        return f"Error: {e}"
+        click.echo(f'Cannot find host ip address: {e}')
+        return None
 
 
 def extract_info_linux(package_string):
-    # Utilisation d'une expression régulière pour extraire le nom, la version et l'architecture sous Linux
-    pattern = r'^(.*?)_([^_]+)_([^\s]+)$'
-    match = re.match(pattern, package_string)
+    # Original regular expression pattern
+    original_pattern = r'^(.*?)_([^_]+)_([^\s]+)$'
+
+    # Additional pattern to handle strings like "whiptail-0.52.20-1ubuntu1"
+    additional_pattern = r'^([^-\s]+)-([\d.]+)-(\S+)$'
+
+    # Pattern for strings like "ncurses-6.1-10.20180224.el8"
+    new_pattern = r'^([^-\s]+)-([\d.]+)-([\d.]+)\.([^\s]+)$'
+
+    # Pattern for strings like "ncurses-6.1-10.20180224.el8"
+    second_pattern = r'(.*)-(.*)-(.*).(.*)'
+    third_pattern = r'\d+(\.\d+)*'
+
+    # Try the original pattern first
+    match = re.match(original_pattern, package_string)
 
     if match:
         name = match.group(1)
@@ -518,7 +631,36 @@ def extract_info_linux(package_string):
         architecture = match.group(3)
         return {"name": name, "version": version, "arch": architecture}
     else:
-        return None
+        # If the original pattern didn't match, try the additional pattern
+        match = re.match(additional_pattern, package_string)
+
+        if match:
+            name = match.group(1)
+            version = match.group(2)
+            architecture = match.group(3)
+            return {"name": name, "version": version, "arch": architecture}
+        else:
+            # If the additional pattern didn't match, try the new pattern
+            match = re.match(new_pattern, package_string)
+
+            if match:
+                name = match.group(1)
+                version = match.group(2)
+                release = match.group(3)
+                architecture = match.group(4)
+                return {"name": name, "version": version, "arch": architecture}
+            else:
+                # If the new pattern didn't match, try the second pattern
+                match = re.match(second_pattern, package_string)
+
+                if match:
+                    name = match.group(1)
+                    version = match.group(2)
+                    release = match.group(3)
+                    architecture = match.group(4)
+                    return {"name": name, "version": version, "arch": architecture}
+                else:
+                    return None
 
 
 def extract_info_windows(package_string):
@@ -758,8 +900,7 @@ def scan_up_host_and_append(ip, active_hosts):
 
 
 def get_snmp_hosts(network, use_range, range_start, range_end):
-    cfg = Configuration()
-    config = cfg.create(config_file_path=config_file)
+    config = Configuration.load(config_file_path=config_file)
     active_hosts = set()
     cidr = config.get_value('network', 'cidr', default=24)
     exempt = config.get_value('network', 'exempt')
@@ -892,11 +1033,31 @@ def parse_dpkg():
 
 
 def get_host_packages(command, host_os, file, container):
+    """
+        Get installed stacks on the host machine locally
+
+    Parameters
+    ----------
+    command
+    host_os
+    file
+    container
+
+    Returns
+    -------
+    None
+    """
+
     mac = get_mac_address()
     ip = get_ip_address()
     architecture = get_os_architecture()
-    hostname = get_os_hostname(ip)
-    if host_os == 'Windows':
+
+    if ip:
+        hostname = get_os_hostname(ip)
+    else:
+        hostname = None
+
+    if host_os == 'windows':
         command_output = subprocess.check_output(command, text=True)
         output_list = command_output.split('\n')
         packages_versions = []
@@ -915,7 +1076,7 @@ def get_host_packages(command, host_os, file, container):
                         packages_versions.append(p_v)
             except:
                 pass
-    elif host_os == "macOS":
+    elif host_os == "darwin":
         packages_versions = []
         status, output = subprocess.getstatusoutput(command)
         if status == 0:
@@ -954,6 +1115,7 @@ def get_host_packages(command, host_os, file, container):
     else:
         command_output = subprocess.Popen(command, stdout=subprocess.PIPE)
         packages_versions = format_pkg_version(command_output, host_os)
+
     os_info = {
         "os_name": host_os,
         "mac": mac,
@@ -971,7 +1133,7 @@ def get_host_packages(command, host_os, file, container):
             "\"ipv4\": \"%s\"," % ip,
             "\"containers\" : [ "
         ])
-        click.echo("\n + Listing Packages for %s successfully !!!\n" % host_os)
+        click.echo("\n + Successfully retrieve installed stacks for %s !!!\n" % host_os)
     else:
 
         file.writelines([
@@ -983,32 +1145,41 @@ def get_host_packages(command, host_os, file, container):
 
         ])
 
-        click.echo(f" + Listing Packages for {container} container in {host_os} successfully !!!\n")
-
-
-"""
-    Get the host os 
-"""
+        click.echo(
+            f" + Successfully retrieved installed stacks for container {container} in {host_os} successfully !!!\n")
 
 
 def get_host_os():
-    if pt.system() == 'Windows':
-        return 'Windows'
-    elif pt.system() == 'Darwin':
+    """
+        Function to find the host operating system
+    Returns
+    host operating system name
+    -------
+
+    """
+    platform_system = pt.system()
+    check_hostname_ctl = False
+    if platform_system == 'Windows':
+        return 'windows'
+    elif platform_system == 'Linux':
+        check_hostname_ctl = True
+    elif platform_system == 'Darwin':
         command_output = subprocess.run(["sw_vers"], stdout=subprocess.PIPE)
         command_output_lines = command_output.stdout.decode("utf-8").split('\n')
         mac = re.search("macOS", str(command_output_lines))
         if mac:
-            return "macOS"
+            return "macos"
         else:
-            print("ProductName not found in the input data.")
+            print("Cannot find host operating system.")
+            return platform_system.lower()
 
-    command_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
-    command_output_lines = command_output.stdout.decode("utf-8").split('\n')
+    if check_hostname_ctl:
+        command_output = subprocess.run(["hostnamectl"], stdout=subprocess.PIPE)
+        command_output_lines = command_output.stdout.decode("utf-8").split('\n')
 
-    for line in command_output_lines:
-        if "system" in line.lower():
-            return line.split(':')[-1].lower().lstrip()
+        for line in command_output_lines:
+            if "system" in line.lower():
+                return line.split(':')[-1].lower().lstrip()
 
 
 def get_os_hostname(ip_address):
@@ -1016,7 +1187,7 @@ def get_os_hostname(ip_address):
         hostname = socket.gethostbyaddr(ip_address)[0]
         return hostname
     except socket.herror:
-        return "No domain name found"
+        return None
 
 
 """
@@ -1083,12 +1254,12 @@ def format_pkg_version(command1_output, host_os):
 """
 
 
-def network_host_audit(file):
+def get_host_info_and_installed(file):
     host_os = get_host_os()
-    if host_os == 'Windows':
+    if host_os == 'windows':
         get_host_packages(
             ["powershell", "-Command", "Get-Package", "|", "Select", "Name,Version"], host_os, file, None)
-    elif host_os == "macOS":
+    elif host_os in ["darwin", "macos"]:
         get_host_packages("pkgutil --pkgs",
                           host_os, file, None)
     else:
@@ -1107,12 +1278,8 @@ def network_host_audit(file):
                               host_os, file, None)
         else:
             custom_exit(f"The actual Operating System {host_os} is not supported yet.\n")
-    #########
-    ##
-    # start container inspection
-    ##
-    ########
 
+    # start container inspection
     containers_info = get_container_name_and_images()
 
     if len(containers_info):
@@ -1180,15 +1347,15 @@ def format_json_report(client_id, client_secret, file):
                 "data": json.dumps(file_content)
             }
         )
-        click.echo(response.json())
         if response.status_code != 200:
-            click.echo("\nExecution error️")
-            click.echo("Message: ", response.json()["detail"])
+            click.echo("\nError! Unable to send assets..")
+            custom_exit(f"Reason: {response.json()['detail']}")
+        else:
+            click.echo('\n[+] - Successfully sent assets...')
 
         with open(file, "w+") as file_in_write_mode:
             file_in_write_mode.write("")
     except requests.exceptions.RequestException as e:
-        print(f"error on request {e}")
         request_error(error=e)
 
 
@@ -1202,26 +1369,22 @@ def export_data_to_csv(file, export_path):
     # Parse JSON
     data = json.loads(data)
     csv_file = export_path
-    try:
-        first_key = next(iter(data))
-        # Open CSV file for writing
-        with open(csv_file, 'w', newline='') as csvfile:
-            # Create CSV writer object
-            csv_writer = csv.writer(csvfile)
+    # Open CSV file for writing
+    with open(csv_file, 'w', newline='') as csvfile:
+        # Create CSV writer object
+        csv_writer = csv.writer(csvfile)
 
-            # Write header
-            csv_writer.writerow(
-                ["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version", "stack_type",
-                 "host_machine",
-                 "host_machine_architecture", "host_machine_os", "host_machine_hostname", "host_machine_mac"])
-
+        # Write header
+        csv_writer.writerow(
+            ["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version", "stack_type",
+             "host_machine",
+             "host_machine_architecture", "host_machine_os", "host_machine_hostname", "host_machine_mac"])
+        for key in data:
             # Write data
-            for package in data[first_key]["packages"]:
+            for package in data[key]["packages"]:
                 csv_writer.writerow(
-                    [data[first_key]["ipv4"], data[first_key]["mac"], data[first_key]["architecture"], first_key,
-                     data[first_key]["os"]['os_name'], package["name"], package["version"]])
-    except Exception as e:
-        custom_exit(f'Unexpected error occurred. Cannot export assets to file {csv_file}')
+                    [data[key]["ipv4"], data[key]["mac"], data[key]["architecture"], key,
+                     data[key]["os"]['os_name'], package["name"], package["version"]])
     return csv_file
 
 
@@ -1235,111 +1398,24 @@ def export_network_data_to_csv(file, export_path):
     # Parse JSON
     data = json.loads(data)
     csv_file = export_path
-    try:
-        first_key = next(iter(data))
+    # Open CSV file for writing
+    with open(csv_file, 'w', newline='') as csvfile:
+        # Create CSV writer object
+        csv_writer = csv.writer(csvfile)
+        # Write header
+        csv_writer.writerow(
+            ["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version", "stack_type",
+             "host_machine",
+             "host_machine_architecture", "host_machine_os", "host_machine_hostname", "host_machine_mac"])
 
-        # Open CSV file for writing
-        with open(csv_file, 'w', newline='') as csvfile:
-            # Create CSV writer object
-            csv_writer = csv.writer(csvfile)
-
-            # Write header
-            csv_writer.writerow(
-                ["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version", "stack_type",
-                 "host_machine",
-                 "host_machine_architecture", "host_machine_os", "host_machine_hostname", "host_machine_mac"])
-
+        for key in data:
             # Write data
-            for package in data[first_key]["packages"]:
+            for package in data[key]["packages"]:
                 csv_writer.writerow(
-                    [data[first_key]["ipv4"], data[first_key]['os'].get('mac', None), data[first_key]['os']["arch"],
-                     data[first_key]['os']['host_name'],
-                     data[first_key]["os"]['os_name'], package["name"], package["version"]])
-    except:
-        custom_exit(f'Unexpected error occurred. Cannot export assets to file {csv_file}')
+                    [data[key]["ipv4"], data[key]['os'].get('mac', None), data[key]['os']["arch"],
+                     data[key]['os']['host_name'],
+                     data[key]["os"]['os_name'], package["name"], package["version"]])
     return csv_file
-
-
-# def export_data_to_xlsx(file, export_path):
-#     file_content = ""
-#
-#     # Read the file content
-#     with open(file, "r+") as file_in_read_mode:
-#         file_content = file_in_read_mode.read()
-#
-#     # Replace single quotes with double quotes
-#     file_content = re.sub('\'', '"', file_content)
-#
-#     # Parse JSON
-#     data = json.loads(file_content)
-#     first_key = next(iter(data))
-#
-#     # Create a list of dictionaries for the data
-#     rows = []
-#     for package in data[first_key]["packages"]:
-#         row_data = {
-#             "ip": data[first_key]["ip"],
-#             "mac": data[first_key]["mac"],
-#             "architecture": data[first_key]["architecture"],
-#             "hostname": first_key,
-#             "os": data[first_key]["os"],
-#             "stack_name": package["name"],
-#             "stack_version": package["version"]
-#         }
-#         rows.append(row_data)
-#
-#     # Create DataFrame from the list of dictionaries
-#     df = pd.DataFrame(rows, columns=["ip", "mac", "architecture", "hostname", "os", "stack_name", "stack_version"])
-#
-#     # Excel file name
-#     xlsx_file = f"{export_path}{first_key}.xlsx"
-#
-#     # Write the DataFrame to an Excel file
-#     df.to_excel(xlsx_file, index=False)
-#
-#     return xlsx_file
-
-
-def export_data_to_json(file, export_path):
-    file_content = ""
-
-    # Read the file content
-    with open(file, "r+") as file_in_read_mode:
-        file_content = file_in_read_mode.read()
-
-    # Replace single quotes with double quotes
-    file_content = re.sub('\'', '"', file_content)
-
-    # Parse JSON
-    data = json.loads(file_content)
-    first_key = next(iter(data))
-
-    # JSON file name
-    json_file = f"{export_path}{first_key}.json"
-
-    # Write data to JSON file
-    with open(json_file, 'w') as jsonfile:
-        json.dump(data, jsonfile, indent=2)
-
-    return json_file
-
-
-def read_config(config_file: str = None):
-    if not config_file:
-        file_name = config_file
-    else:
-        file_name = config_file
-
-    try:
-        with open(file_name, 'r') as config:
-            loaded_config_data = yaml.safe_load(config)
-        return loaded_config_data
-    except FileNotFoundError:
-        print(f"Config file '{file_name}' not found.")
-        return None
-    except Exception as e:
-        print(f"Cannot read config file {file_name}. This is error {e}")
-        return None
 
 
 def update_config_with_nested(config, updated_config):
@@ -1366,9 +1442,21 @@ def update_config(file_name, loaded_config_data, new_config):
         print(f"Cannot write config file. {e}")
 
 
-def run_not_network(client_id, secret_key, export, export_path, export_file):
+def run_mode_agent(client_id, secret_key, export, export_path, export_file):
     """
-        By cmd execution
+        Function to handle agent mode execution
+
+    Parameters
+    ----------
+    client_id
+    secret_key
+    export: define if data must be exported
+    export_path
+    export_file
+
+    Returns
+    -------
+    None
     """
 
     if export is True:
@@ -1380,7 +1468,7 @@ def run_not_network(client_id, secret_key, export, export_path, export_file):
 
         file.writelines(["  \"%s\" : { " % pt.node(), ])
 
-        network_host_audit(file)
+        get_host_info_and_installed(file)
 
         file.writelines([" ] } } "])
 
@@ -1393,10 +1481,38 @@ def run_not_network(client_id, secret_key, export, export_path, export_file):
         format_json_report(client_id, secret_key, "data")
 
 
-def run_network(community, device, use_range, range_start, range_end, client_id, secret_key, export, export_path, export_file):
+def run_mode_network(
+        community: str,
+        device: str,
+        use_range: bool,
+        range_start: str,
+        range_end: str,
+        client_id: str,
+        secret_key: str,
+        export: bool,
+        export_path: str,
+        export_file: str
+) -> None:
     """
-        By snmp mibs
+
+    Parameters
+    ----------
+    community
+    device
+    use_range
+    range_start
+    range_end
+    client_id
+    secret_key
+    export
+    export_path
+    export_file
+
+    Returns
+    -------
+    None
     """
+
     if community is None:
         custom_exit("Execution error: the snmp community is not specified.\n")
     else:
@@ -1430,6 +1546,12 @@ def configure():
     pass
 
 
+@configure.command(name="display", help='Display configuration')
+def configure_display():
+    config = Configuration.load(config_file_path=config_file)
+    config.read_and_display_config()
+
+
 @configure.command(name="export", help='Save exportation configuration variables')
 @click.option("-a", "--activate", is_flag=True, help="Activate exportation run mode. Default: False if option not set")
 @click.option('-p', '--path', type=click.Path(), default=os.path.expanduser('~'),
@@ -1437,8 +1559,7 @@ def configure():
 @click.option('-f', '--file-name', type=str, default='watchman_export_assets.csv',
               help="The exportation file name. Default: watchman_export_assets.csv", required=False)
 def configure_exportation(activate, path, file_name):
-    cfg = Configuration()
-    config = cfg.create(config_file_path=config_file)
+    config = Configuration.load(config_file_path=config_file)
     section = 'runtime'
 
     if activate:
@@ -1458,8 +1579,7 @@ def configure_exportation(activate, path, file_name):
 @click.option("-c", "--client-id", type=str, help="Client ID for authentication purpose", required=True)
 @click.option("-s", "--client-secret", type=str, help="Client Secret for authentication purpose", required=True)
 def configure_connect(mode, client_id, client_secret):
-    cfg = Configuration()
-    config = cfg.create(config_file_path=config_file)
+    config = Configuration.load(config_file_path=config_file)
     section = 'runtime'
 
     if mode:
@@ -1493,8 +1613,7 @@ def configure_connect(mode, client_id, client_secret):
                                                "192.168.1.12,", required=False)
 def configure_network(snmp_community, snmp_port, network_target, cidr, use_range, range_start, range_end, exempt,
                       snmp_auth_key, snmp_priv_key, snmp_user):
-    cfg = Configuration()
-    config = cfg.create(config_file_path=config_file)
+    config = Configuration.load(config_file_path=config_file)
     section = 'network'
     if snmp_community:
         config.set_value(section, 'snmp', 'v2', 'community', value=snmp_community)
@@ -1511,7 +1630,8 @@ def configure_network(snmp_community, snmp_port, network_target, cidr, use_range
     if use_range:
         config.set_value(section, 'use_range', value=True)
         if None in [range_end, range_start]:
-            custom_exit("\nPlease add network ip address range parameters! \nNeeded Options: --range-start, --range-end\nSee --help for how to configure network options.")
+            custom_exit(
+                "\nPlease add network ip address range parameters! \nNeeded Options: --range-start, --range-end\nSee --help for how to configure network options.")
     else:
         config.set_value(section, 'use_range', value=False)
 
@@ -1549,8 +1669,7 @@ def configure_network(snmp_community, snmp_port, network_target, cidr, use_range
 @click.option("-d", "--day", type=int, help="Execution every day.", required=False)
 @click.option("-mo", "--month", type=int, help="Execution every month.", required=False)
 def configure_schedule(minute, hour, day, month):
-    cfg = Configuration()
-    config = cfg.create(config_file_path=config_file)
+    config = Configuration.load(config_file_path=config_file)
     section = 'schedule'
 
     if minute:
@@ -1576,9 +1695,7 @@ def configure_schedule(minute, hour, day, month):
 
 @cli.command(name='run', help='Attach monitoring to cron job and watch for stacks')
 def run():
-    cfg = Configuration()
-    config = cfg.create(config_file_path=config_file)
-
+    config = Configuration.load(config_file_path=config_file)
     mode = config.get_value('runtime', 'mode', default='network')
     export = config.get_value('runtime', 'export', default=False)
     export_path = config.get_value('runtime', 'export_path', default=os.path.expanduser('~'))
@@ -1612,14 +1729,12 @@ def run():
                                mode="write") as obj:
                         obj.insert_value("token", token)
         else:
-            click.echo("\nRUN")
-            click.echo("\nAuthentication failed!!")
+            custom_exit("\nAuthentication failed!!")
     except requests.exceptions.RequestException as e:
         request_error(error=e)
     try:
         if keyring.get_password("watchmanAgent", "token") is None:
             custom_exit("Authentication failed!!")
-            custom_exit("TOKEN")
     except NoKeyringError as e:
         # use db method
         with KeyDB(table_name="watchmanAgent",
@@ -1630,12 +1745,12 @@ def run():
         Getting stacks from the target 
     """
     if mode == 'agent':
-        run_not_network(client_id=client_id, secret_key=secret_key, export=export, export_path=export_path,
-                        export_file=export_file)
+        run_mode_agent(client_id=client_id, secret_key=secret_key, export=export, export_path=export_path,
+                       export_file=export_file)
     else:
-        run_network(community=community, device=network, use_range=use_range, range_start=range_start,
-                    range_end=range_end, client_id=client_id, secret_key=secret_key, export=export,
-                    export_path=export_path, export_file=export_file)
+        run_mode_network(community=community, device=network, use_range=use_range, range_start=range_start,
+                         range_end=range_end, client_id=client_id, secret_key=secret_key, export=export,
+                         export_path=export_path, export_file=export_file)
 
 
 if __name__ == "__main__":
